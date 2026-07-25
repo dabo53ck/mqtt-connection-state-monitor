@@ -5,94 +5,49 @@ blueprint:
   homeassistant:
     min_version: "2024.6.0"
 
-  description: "# MQTT Connection State Monitor
-
-<p align=\"center\">
-  <img src=\"https://img.shields.io/badge/version-0.1.0--beta-orange\"/>
-</p>
-
-Monitor MQTT Connection State binary sensors and notify when devices remain offline longer than the configured duration.<br><br>
-
-⚠️ <b>This is a public beta.</b><br>
-Features may change, inputs may be added or modified.<br>
-Please report bugs and suggestions in the <a href=\"https://github.com/dabo53ck/mqtt-connection-state-monitor\">GitHub repository</a>.<br><br>
-
-<details open>
-<summary><b>Requirements</b></summary>
-
-• Home Assistant 2024.6.0 or newer<br>
-• <a href=\"https://github.com/studioIngrid/mqtt_connection_state\">MQTT Connection State integration</a><br>
-• One Input Text helper with maximum length of 255 for notification tracking<br>
-
-</details><br>
-
-<details>
-<summary><b>Features</b></summary>
-
-• Delayed offline detection<br>
-• Duplicate notification protection<br>
-• Optional offline notifications<br>
-• Optional online notifications<br>
-• Optional offline actions<br>
-• Optional online actions<br>
-• Automatic recovery handling<br>
-• Variables available for custom actions<br>
-• Device exclusion list<br>
-• iOS notification grouping<br>
-• Custom notification icons
-
-</details><br>
-
-<details>
-<summary><b>Companion App Notifications</b></summary>
-
-Use the built-in notification options for simple mobile push notifications.<br><br>
-
-Notifications are grouped on iOS using Group ID `mqtt_connection_state`.
-
-</details><br>
-
-<details>
-<summary><b>Custom Actions</b></summary>
-
-Use Offline Actions and Online Actions for:<br>
-• Telegram<br>
-• Discord<br>
-• Email<br>
-• Persistent Notifications<br>
-• Scripts<br>
-• Webhooks<br>
-• Other automations<br><br>
-
-Variable details and examples are documented in the corresponding action fields.
-
-</details><br>
-
-<details>
-<summary><b>Changelog</b></summary>
-
-v0.1.0-beta – Initial public beta release
-
-</details><br>
-
-<details>
-<summary><b>Known Limitations</b></summary>
-
-The blueprint uses an Input Text helper to track devices that have
-already been reported as offline.
-
-Because Input Text helpers have a maximum length, the number of
-simultaneously tracked offline devices is limited.
-
-In practice, approximately 10-15 devices can be tracked at the same
-time, depending on the length of the device names.
-
-For most installations this is not an issue, but environments with a
-large number of devices going offline simultaneously should be aware
-of this limitation.
-
-</details>"
-
+  description: >-
+    # MQTT Connection State Monitor
+    
+    ![Version](https://img.shields.io/badge/version-0.1.0_beta-orange) &nbsp;&nbsp;&nbsp; [![GitHub](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/dabo53ck/mqtt-connection-state-monitor) &nbsp;&nbsp;&nbsp; [![Issues](https://img.shields.io/badge/Issues-red)](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) &nbsp;&nbsp;&nbsp; [![Community](https://img.shields.io/badge/Community-purple)](https://community.home-assistant.io/t/release-mqtt-connection-state-monitor-for-home-assistant/)
+    
+    
+    Monitor your MQTT-connected devices and receive timely notifications when they go offline. Unlike basic connectivity checks, this blueprint implements **delayed detection** to avoid false alarms from brief connection drops, while maintaining robust duplicate protection so you're not spammed with repeated alerts.
+    
+    
+    Built on top of the excellent [MQTT Connection State integration](https://github.com/studioIngrid/mqtt_connection_state) by [@studioIngrid](https://github.com/studioIngrid) – thank you for the great foundation!
+    
+    Full documentation and action examples are available on [GitHub](https://github.com/dabo53ck/mqtt-connection-state-monitor).
+    
+    
+    <details><summary>Key Features</summary>
+    
+    • **Configurable offline threshold** – Choose how long a device must stay offline before triggering (default: 180 minutes)
+    • **Duplicate notification protection** – Each device is only notified once per offline event
+    • **Flexible notification options** – Enable/disable offline and online notifications independently
+    • **Custom actions support** – Run scripts, webhooks, Telegram/Discord messages alongside or instead of Companion App notifications
+    • **Automatic recovery handling** – Tracks when devices come back online and clears from notification queue
+    • **Device exclusion list** – Exclude specific entities from monitoring
+    • **iOS notification grouping** – Consolidates alerts into a single grouped notification
+    • **Rich context variables** – Pass device details, timestamps, and durations to custom actions
+    
+    </details>
+    
+    
+    <details><summary>Requirements</summary>
+    
+    • Home Assistant 2024.6.0 or newer
+    • [MQTT Connection State integration](https://github.com/studioIngrid/mqtt_connection_state) (installed separately via HACS)
+    • One Input Text helper with maximum length of 255 characters (for tracking notified devices)
+    
+    </details>
+    
+    
+    <details><summary>Known Limitation</summary>
+    
+    Due to the 255-character limit of Input Text helpers, approximately **10-15 devices** can be tracked simultaneously depending on device name lengths. For larger deployments, consider splitting into multiple blueprints with separate helpers.
+    
+    </details>
+  
   domain: automation
 
   source_url: https://github.com/dabo53ck/mqtt-connection-state-monitor
