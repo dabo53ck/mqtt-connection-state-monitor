@@ -1,0 +1,525 @@
+blueprint:
+  name: MQTT Connection State Monitor
+  author: dabo53ck
+
+  homeassistant:
+    min_version: "2024.6.0"
+
+  description: "# MQTT Connection State Monitor
+
+<p align=\"center\">
+  <img src=\"https://img.shields.io/badge/version-0.1.0--beta-orange\"/>
+</p>
+
+Monitor MQTT Connection State binary sensors and notify when devices remain offline longer than the configured duration.<br><br>
+
+⚠️ <b>This is a public beta.</b><br>
+Features may change, inputs may be added or modified.<br>
+Please report bugs and suggestions in the <a href=\"https://github.com/dabo53ck/mqtt-connection-state-monitor\">GitHub repository</a>.<br><br>
+
+<details open>
+<summary><b>Requirements</b></summary>
+
+• Home Assistant 2024.6.0 or newer<br>
+• <a href=\"https://github.com/studioIngrid/mqtt_connection_state\">MQTT Connection State integration</a><br>
+• One Input Text helper with maximum length of 255 for notification tracking<br>
+
+</details><br>
+
+<details>
+<summary><b>Features</b></summary>
+
+• Delayed offline detection<br>
+• Duplicate notification protection<br>
+• Optional offline notifications<br>
+• Optional online notifications<br>
+• Optional offline actions<br>
+• Optional online actions<br>
+• Automatic recovery handling<br>
+• Variables available for custom actions<br>
+• Device exclusion list<br>
+• iOS notification grouping<br>
+• Custom notification icons
+
+</details><br>
+
+<details>
+<summary><b>Companion App Notifications</b></summary>
+
+Use the built-in notification options for simple mobile push notifications.<br><br>
+
+Notifications are grouped on iOS using Group ID `mqtt_connection_state`.
+
+</details><br>
+
+<details>
+<summary><b>Custom Actions</b></summary>
+
+Use Offline Actions and Online Actions for:<br>
+• Telegram<br>
+• Discord<br>
+• Email<br>
+• Persistent Notifications<br>
+• Scripts<br>
+• Webhooks<br>
+• Other automations<br><br>
+
+Variable details and examples are documented in the corresponding action fields.
+
+</details><br>
+
+<details>
+<summary><b>Changelog</b></summary>
+
+v0.1.0-beta – Initial public beta release
+
+</details><br>
+
+<details>
+<summary><b>Known Limitations</b></summary>
+
+The blueprint uses an Input Text helper to track devices that have
+already been reported as offline.
+
+Because Input Text helpers have a maximum length, the number of
+simultaneously tracked offline devices is limited.
+
+In practice, approximately 10-15 devices can be tracked at the same
+time, depending on the length of the device names.
+
+For most installations this is not an issue, but environments with a
+large number of devices going offline simultaneously should be aware
+of this limitation.
+
+</details>"
+
+  domain: automation
+
+  source_url: https://github.com/dabo53ck/mqtt-connection-state-monitor
+
+  input:
+
+    notifications:
+      name: Notifications
+      icon: mdi:bell
+      collapsed: false
+      input:
+
+        offline_notifications_enabled:
+          name: Enable Offline Notifications
+          description: >
+            Send a Companion App notification when a device has been
+            offline longer than the configured duration.
+          default: true
+          selector:
+            boolean:
+
+        online_notifications_enabled:
+          name: Enable Online Notifications
+          description: >
+            Send a Companion App notification when a previously tracked
+            offline device comes back online.
+          default: true
+          selector:
+            boolean:
+
+        mobile_device:
+          name: Notification Device
+          description: >
+            Mobile device used for Companion App notifications.
+
+            Only required when Companion App notifications are enabled.
+          default: ""
+          selector:
+            device:
+              filter:
+                integration: mobile_app
+
+    actions:
+      name: Actions
+      icon: mdi:lightning-bolt
+      collapsed: false
+      input:
+
+        offline_actions:
+          name: Offline Actions
+          description: >
+            Optional actions executed when a device goes offline.
+
+            Available variables:
+              • device_name
+              • friendly_name
+              • entity_id
+              • offline_seconds
+              • threshold_seconds
+              • offline_time
+              • offline_timestamp
+
+            Examples:
+
+            Telegram:
+              Device {{ friendly_name }} is offline.
+
+            Persistent Notification:
+              {{ friendly_name }} has been offline for
+              {{ offline_seconds }} seconds.
+
+            Script:
+              Pass {{ entity_id }} to another script.
+          default: []
+          selector:
+            action: {}
+
+        online_actions:
+          name: Online Actions
+          description: >
+            Optional actions executed when a device comes back online.
+
+            Available variables:
+              • device_name
+              • friendly_name
+              • entity_id
+              • online_time
+              • online_timestamp
+
+            Examples:
+
+            Telegram:
+              Device {{ friendly_name }} is back online.
+
+            Script:
+              Pass {{ entity_id }} to another script.
+          default: []
+          selector:
+            action: {}
+
+    monitoring_options:
+      name: Monitoring Options
+      icon: mdi:cog-transfer-outline
+      collapsed: false
+      input:
+
+        offline_duration_minutes:
+          name: Offline Duration (minutes)
+          description: >
+            Time a device must remain offline before notifications
+            and actions are executed.
+          default: 180
+          selector:
+            number:
+              min: 1
+              max: 10080
+              mode: box
+              unit_of_measurement: minutes
+
+        exclude_entities:
+          name: Exclude Devices
+          description: >
+            Select devices that should be excluded from monitoring.
+            Shows binary_sensors with device_class 'connectivity'.
+            Select entities that end with '_connection_state'.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: binary_sensor
+                device_class: connectivity
+
+        notified_helper:
+          name: Notification Tracking Helper
+          description: >
+            Input Text helper used internally to prevent duplicate
+            offline notifications.
+
+            Create one Input Text helper with maximum length of 255.
+          selector:
+            entity:
+              domain: input_text
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: time_pattern
+    minutes: "/15"
+
+  - platform: event
+    event_type: mqtt_connection_state_changed
+
+variables:
+  offline_notifications_enabled: !input offline_notifications_enabled
+  online_notifications_enabled: !input online_notifications_enabled
+  mobile_device: !input mobile_device
+  notified_helper: !input notified_helper
+  exclude_entities: !input exclude_entities
+  offline_duration_minutes: !input offline_duration_minutes
+
+  threshold_seconds: >
+    {{ (offline_duration_minutes | int(180)) * 60 }}
+
+action:
+
+  - choose:
+
+      #
+      # DEVICE BACK ONLINE
+      #
+      - conditions:
+          - condition: template
+            value_template: >
+              {{
+                trigger.platform == 'event'
+                and trigger.event.data.state == 'online'
+              }}
+
+        sequence:
+
+          - variables:
+
+              entity_id: >
+                {{ trigger.event.data.entity_id }}
+
+              device_name: >
+                {{
+                  trigger.event.data.entity_id
+                  | replace('binary_sensor.', '')
+                  | replace('_connection_state', '')
+                }}
+
+              current: >
+                {% set raw = states(notified_helper) %}
+
+                {% if raw in ['', 'unknown', 'unavailable'] %}
+                  []
+                {% else %}
+                  {{ raw.split('|') }}
+                {% endif %}
+
+          - choose:
+
+              #
+              # ONLY CONTINUE IF DEVICE WAS PREVIOUSLY TRACKED
+              #
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ device_name in current }}
+
+                sequence:
+
+                  - variables:
+
+                      updated_list: >
+                        {% set ns = namespace(items=[]) %}
+
+                        {% for item in current %}
+                          {% if item != device_name %}
+                            {% set ns.items = ns.items + [item] %}
+                          {% endif %}
+                        {% endfor %}
+
+                        {{ ns.items | join('|') }}
+
+                  - service: input_text.set_value
+                    target:
+                      entity_id: !input notified_helper
+                    data:
+                      value: "{{ updated_list }}"
+
+                  - variables:
+
+                      friendly_name: >
+                        {{
+                          state_attr(
+                            trigger.event.data.entity_id,
+                            'friendly_name'
+                          )
+                          | default(
+                              device_name
+                              | replace('_', ' ')
+                              | title,
+                              true
+                            )
+                        }}
+
+                      online_timestamp: "{{ now() }}"
+
+                      online_time: >
+                        {{ now().strftime('%Y-%m-%d %H:%M:%S') }}
+
+                  #
+                  # OPTIONAL ONLINE NOTIFICATION
+                  #
+                  - choose:
+
+                      - conditions:
+                          - condition: template
+                            value_template: >
+                              {{
+                                online_notifications_enabled
+                                and mobile_device != ''
+                              }}
+
+                        sequence:
+
+                          - device_id: !input mobile_device
+                            domain: mobile_app
+                            type: notify
+                            title: >
+                              🟢 {{ friendly_name }} online
+
+                            message: >
+                              {{ friendly_name }} is back online.
+
+                            data:
+                              group: mqtt_connection_state
+                              notification_icon: "mdi:wifi"
+
+                  #
+                  # OPTIONAL ONLINE ACTIONS
+                  #
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ true }}"
+                        sequence: !input online_actions
+
+      #
+      # PERIODIC OFFLINE CHECK
+      #
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ trigger.platform != 'event' }}
+
+        sequence:
+
+          - repeat:
+
+              for_each: >
+                {{
+                  states.binary_sensor
+                  | selectattr('entity_id', 'search', '_connection_state$')
+                  | rejectattr('entity_id', 'in', exclude_entities)
+                  | map(attribute='entity_id')
+                  | list
+                }}
+
+              sequence:
+
+                - variables:
+
+                    entity_id: "{{ repeat.item }}"
+
+                    device_name: >
+                      {{
+                        entity_id
+                        | replace('binary_sensor.', '')
+                        | replace('_connection_state', '')
+                      }}
+
+                    current_notified: >
+                      {% set raw = states(notified_helper) %}
+
+                      {% if raw in ['', 'unknown', 'unavailable'] %}
+                        []
+                      {% else %}
+                        {{ raw.split('|') }}
+                      {% endif %}
+
+                    offline_seconds: >
+                      {% set lc = states[entity_id].last_changed %}
+                      {% if lc is none %}
+                        {{ 0 }}
+                      {% else %}
+                        {{ (as_timestamp(now()) - as_timestamp(lc)) | int }}
+                      {% endif %}
+
+                    friendly_name: >
+                      {{
+                        state_attr(entity_id, 'friendly_name')
+                        | default(
+                            device_name
+                            | replace('_', ' ')
+                            | title,
+                            true
+                          )
+                      }}
+
+                - if:
+
+                    - condition: template
+                      value_template: >
+                        {{
+                          states(entity_id) == 'off'
+                          and offline_seconds >= threshold_seconds
+                          and device_name not in current_notified
+                        }}
+
+                  then:
+
+                    #
+                    # OPTIONAL OFFLINE NOTIFICATION
+                    #
+                    - choose:
+
+                        - conditions:
+                            - condition: template
+                              value_template: >
+                                {{
+                                  offline_notifications_enabled
+                                  and mobile_device != ''
+                                }}
+
+                          sequence:
+
+                            - device_id: !input mobile_device
+                              domain: mobile_app
+                              type: notify
+                              title: >
+                                🔴 {{ friendly_name }} offline
+
+                              message: >
+                                {{ friendly_name }} has been offline for
+                                {{ offline_duration_minutes }} minutes.
+
+                              data:
+                                group: mqtt_connection_state
+                                notification_icon: "mdi:wifi-off"
+
+                    - variables:
+
+                        offline_timestamp: "{{ now() }}"
+
+                        offline_time: >
+                          {{ now().strftime('%Y-%m-%d %H:%M:%S') }}
+
+                    #
+                    # OPTIONAL OFFLINE ACTIONS
+                    #
+                    - choose:
+                        - conditions:
+                            - condition: template
+                              value_template: "{{ true }}"
+                          sequence: !input offline_actions
+
+                    #
+                    # UPDATE HELPER
+                    #
+                    - variables:
+
+                        new_value: >
+                          {% set raw = states(notified_helper) %}
+
+                          {% if raw in ['', 'unknown', 'unavailable'] %}
+                            {{ device_name }}
+                          {% else %}
+                            {{ raw ~ '|' ~ device_name }}
+                          {% endif %}
+
+                    - service: input_text.set_value
+                      target:
+                        entity_id: !input notified_helper
+                      data:
+                        value: "{{ new_value }}"
