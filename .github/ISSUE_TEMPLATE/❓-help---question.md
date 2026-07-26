@@ -1,5 +1,5 @@
 ---
-name: Help / Question
+name: "❓ Help / Question"
 about: Need help setting up or using the blueprint
 title: "[HELP] "
 labels: help wanted

@@ -1,5 +1,5 @@
 ---
-name: Bug report
+name: "\U0001F41B Bug report"
 about: Report a bug or unexpected behavior in the blueprint
 title: "[BUG] "
 labels: bug
