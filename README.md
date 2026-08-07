@@ -1,7 +1,7 @@
 # MQTT Connection State Monitor for Home Assistant
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.0--beta-orange"/>
+  <img src="https://img.shields.io/badge/version-0.1.1--beta-orange"/>
 </p>
 
 **Home Assistant automation to monitor MQTT Connection State binary sensors and notify when devices remain offline longer than the configured duration.**
@@ -16,9 +16,11 @@ This is a public beta release. Features may change, inputs may be added or modif
 
 ## Requirements
 
-- Home Assistant 2024.6.0 or newer
-- [MQTT Connection State integration](https://github.com/studioIngrid/mqtt_connection_state)
-- One Input Text helper with maximum length of 255 for notification tracking
+- Home Assistant **2024.8.0** or newer
+- [MQTT Connection State integration](https://github.com/studioIngrid/mqtt_connection_state) (installed separately via HACS)
+- One Input Text helper with maximum length of **255** for notification tracking
+
+⚠️ **Breaking Changes** — See [Changelog](#changelog) before updating from v0.1.0-beta.
 
 ---
 
@@ -49,12 +51,13 @@ The blueprint requires one Input Text helper with a maximum length of **255 char
 2. Click the button below to import the blueprint
 3. Configure your desired options:
    - Select the Input Text helper you created
-   - Choose notification device (for Companion App notifications)
-   - Set offline duration threshold (default: 180 minutes)
-   - Optionally configure exclusion list and actions
+   - Choose **notification devices** (multiple Companion App devices supported)
+   - Set **offline duration threshold** (default: 180 minutes)
+   - Optionally configure iOS/Android notification settings
+   - Optionally configure exclusion list and custom actions
 4. Click **"Import"** and **"Create Automation"**
 
-[![Open your Home Assistant instance and import a blueprint.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://raw.githubusercontent.com/dabo53ck/mqtt-connection-state-monitor/main/mqtt-connection-state-monitor.yaml)
+[![Open your Home Assistant instance and import a blueprint.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/dabo53ck/mqtt-connection-state-monitor/releases/download/v0.1.1-beta/mqtt-connection-state-monitor.yaml)
 
 ---
 
@@ -62,23 +65,40 @@ The blueprint requires one Input Text helper with a maximum length of **255 char
 
 - **Delayed offline detection** – Notifications only trigger after device stays offline longer than configured duration
 - **Duplicate notification protection** – Each device notified only once per offline event
+- **Multiple device notifications** – Send to multiple phones/tablets simultaneously
+- **Platform-aware notifications** – Separate iOS and Android options
+- **iOS interruption level control** – Configure offline/online alert urgency (active/critical/time-sensitive/passive)
+- **iOS notification grouping** – Consolidate alerts on iOS using Group ID `mqtt_connection_state`
+- **Android high priority delivery** – Ensure offline alerts bypass normal delivery delays
+- **Android sticky notifications** – Keep offline alerts visible until manually dismissed
+- **Android notification channels** – Route alerts to a dedicated channel with custom sound/importance
 - **Optional offline/online notifications** – Enable/disable Companion App push notifications separately
 - **Optional offline/online actions** – Trigger scripts, webhooks, Telegram, Discord, etc.
 - **Automatic recovery handling** – Tracks when devices come back online and removes from tracking list
 - **Variables available** – Pass device info to custom actions (see below)
-- **Device exclusion list** – Exclude specific devices from monitoring
-- **iOS notification grouping** – Consolidate alerts on iOS devices using Group ID
-- **Custom notification icons** – Different icons for offline (🔴) vs online (🟢) status
+- **Device exclusion list** – Exclude specific entities from monitoring
+- **Concurrent event support** – Parallel `mqtt_connection_state_changed` events processed correctly (`mode: queued`)
 
 ---
 
 ## Companion App Notifications
 
-Notifications are grouped on iOS using Group ID `mqtt_connection_state`.
+Notifications are sent via the **Home Assistant Companion App** (iOS and Android).
+
+**iOS Options:**
+- Interruption level (offline/online configurable)
+- Notification grouping via Group ID `mqtt_connection_state`
+
+**Android Options:**
+- High priority delivery (bypasses normal delays)
+- Sticky notifications (manual dismissal required)
+- Notification channels (custom sound, vibration, importance)
 
 **Notification Messages:**
 - Offline: `🔴 {friendly_name} offline - Device has been offline for {duration} minutes.`
 - Online: `🟢 {friendly_name} online - Device is back online.`
+
+For other targets (Alexa, Telegram, SMTP, etc.), use the **Custom Actions** section.
 
 ---
 
@@ -130,7 +150,6 @@ Use **Offline Actions** and **Online Actions** for integrations beyond Companion
     - service: notify.telegram_bot
       data:
         message: "✅ Device {{ friendly_name }} is back online!"
-
 ---
 
 ## Known Limitations
@@ -141,20 +160,33 @@ For environments with a large number of devices going offline simultaneously, co
 
 ---
 
-## Future Enhancements
-
-The following features are being considered for future releases. Contributions and feedback are welcome!
-
-- **Customizable notification messages** – Define custom templates for Companion App notifications
-- **Minimum offline time before recovery** – Ignore brief connection drops to prevent false alerts
-- **Multiple device notifications** – Send to multiple targets simultaneously
-- **Persistent event logging** – Track history beyond temporary helper storage
-
-Interested in contributing? Check the [Roadmap](#future-enhancements), open an [Issue](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues), or submit a [Pull Request](https://github.com/dabo53ck/mqtt-connection-state-monitor/pulls).
-
----
-
 ## Changelog
+
+### [v0.1.1-beta] - 2026-08-07
+
+⚠️ **Breaking Changes** — Read carefully before updating.
+
+#### Breaking Changes
+- **Notification selector:** Changed from `entity` (notify domain) to `device` (mobile_app filter)
+  - Existing notification target selections need reconfiguration
+  - Only Companion App devices supported directly; use Custom Actions for Alexa/Telegram/etc.
+- **Minimum version:** Now requires Home Assistant 2024.8.0 or newer
+
+#### Added
+- Multiple device notification support (#2)
+- Platform-aware notification options (iOS / Android)
+- iOS interruption level control (offline/online)
+- iOS notification grouping
+- Android high priority delivery
+- Android sticky notifications
+- Android notification channels
+
+#### Fixed
+- Concurrent event race condition (#1)
+
+#### Tested
+- ✅ iOS & Android notifications
+- ✅ Multi-device parallel events
 
 ### v0.1.0-beta – Initial public beta release
 
