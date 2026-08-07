@@ -3,12 +3,12 @@ blueprint:
   author: dabo53ck
 
   homeassistant:
-    min_version: "2024.6.0"
+    min_version: "2024.8.0"
 
-  description: >-
+  description: |-
     # MQTT Connection State Monitor
     
-    ![Version](https://img.shields.io/badge/version-0.1.0_beta-orange) &nbsp;&nbsp;&nbsp; [![GitHub](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/dabo53ck/mqtt-connection-state-monitor) &nbsp;&nbsp;&nbsp; [![Issues](https://img.shields.io/badge/Issues-red)](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) &nbsp;&nbsp;&nbsp; [![Community](https://img.shields.io/badge/Community-purple)](https://community.home-assistant.io/t/release-mqtt-connection-state-monitor-for-home-assistant/)
+    ![Version](https://img.shields.io/badge/version-0.1.1_beta-orange) &nbsp;&nbsp;&nbsp; [![GitHub](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/dabo53ck/mqtt-connection-state-monitor) &nbsp;&nbsp;&nbsp; [![Issues](https://img.shields.io/badge/Issues-red)](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) &nbsp;&nbsp;&nbsp; [![Community](https://img.shields.io/badge/Community-Thread-blue)](https://community.home-assistant.io/t/release-mqtt-connection-state-monitor-for-home-assistant/)
     
     
     Monitor your MQTT-connected devices and receive timely notifications when they go offline. Unlike basic connectivity checks, this blueprint implements **delayed detection** to avoid false alarms from brief connection drops, while maintaining robust duplicate protection so you're not spammed with repeated alerts.
@@ -16,18 +16,26 @@ blueprint:
     
     Built on top of the excellent [MQTT Connection State integration](https://github.com/studioIngrid/mqtt_connection_state) by [@studioIngrid](https://github.com/studioIngrid) – thank you for the great foundation!
     
+    Notifications are sent via the **Home Assistant Companion App** (iOS and Android). For other targets (Alexa, Telegram, SMTP, etc.), use the **Custom Actions** section.
+    
     Full documentation and action examples are available on [GitHub](https://github.com/dabo53ck/mqtt-connection-state-monitor).
     
     
     <details><summary>Key Features</summary>
     
     • **Configurable offline threshold** – Choose how long a device must stay offline before triggering (default: 180 minutes)
-    • **Duplicate notification protection** – Each device is only notified once per offline event
+    • **Duplicate notification protection** – Each device notified only once per offline event
+    • **Multiple device notifications** – Send alerts to multiple phones/tablets simultaneously
+    • **Platform-aware notifications** – Separate iOS and Android notification options
+    • **iOS interruption level control** – Configure offline and online alert urgency independently
+    • **iOS notification grouping** – Consolidates alerts into a single grouped notification
+    • **Android high priority delivery** – Ensure offline alerts are delivered immediately
+    • **Android sticky notifications** – Keep offline alerts visible until manually dismissed
+    • **Android notification channels** – Route alerts to a dedicated channel with custom sound and importance
     • **Flexible notification options** – Enable/disable offline and online notifications independently
     • **Custom actions support** – Run scripts, webhooks, Telegram/Discord messages alongside or instead of Companion App notifications
     • **Automatic recovery handling** – Tracks when devices come back online and clears from notification queue
     • **Device exclusion list** – Exclude specific entities from monitoring
-    • **iOS notification grouping** – Consolidates alerts into a single grouped notification
     • **Rich context variables** – Pass device details, timestamps, and durations to custom actions
     
     </details>
@@ -35,7 +43,7 @@ blueprint:
     
     <details><summary>Requirements</summary>
     
-    • Home Assistant 2024.6.0 or newer
+    • Home Assistant 2024.8.0 or newer
     • [MQTT Connection State integration](https://github.com/studioIngrid/mqtt_connection_state) (installed separately via HACS)
     • One Input Text helper with maximum length of 255 characters (for tracking notified devices)
     
@@ -44,7 +52,7 @@ blueprint:
     
     <details><summary>Known Limitation</summary>
     
-    Due to the 255-character limit of Input Text helpers, approximately **10-15 devices** can be tracked simultaneously depending on device name lengths. For larger deployments, consider splitting into multiple blueprints with separate helpers.
+    Due to the 255-character limit of Input Text helpers, approximately **10-15 devices** can be tracked simultaneously depending on the length of device names. For larger deployments, consider splitting into multiple blueprints with separate helpers.
     
     </details>
   
@@ -57,7 +65,7 @@ blueprint:
     notifications:
       name: Notifications
       icon: mdi:bell
-      collapsed: false
+      collapsed: true
       input:
 
         offline_notifications_enabled:
@@ -78,28 +86,137 @@ blueprint:
           selector:
             boolean:
 
-        mobile_device:
-          name: Notification Device
+        notification_devices:
+          name: Notification Devices
           description: >
-            Mobile device used for Companion App notifications.
-
-            Only required when Companion App notifications are enabled.
-          default: ""
+            Target devices for Companion App notifications.
+            Select one or more mobile devices with the Home Assistant Companion App installed.
+            For other targets (Alexa, Telegram, SMTP, etc.), use the Custom Actions section.
+          default: []
           selector:
             device:
               filter:
-                integration: mobile_app
+                - integration: mobile_app
+              multiple: true
+
+    ios_notification_options:
+      name: iOS Notification Options
+      icon: mdi:apple
+      collapsed: true
+      input:
+
+        offline_interruption_level:
+          name: Offline Interruption Level
+          description: >
+            On iOS 15 and later, configure how offline notifications are delivered.
+            Critical and time-sensitive notifications must be enabled in the Home Assistant app
+            and allowed in Focus settings.
+          default: time-sensitive
+          selector:
+            select:
+              mode: dropdown
+              options:
+                - label: Default
+                  value: active
+                - label: Critical Notifications
+                  value: critical
+                - label: Time Sensitive Notifications
+                  value: time-sensitive
+                - label: Quiet Notifications Without Waking Screen
+                  value: passive
+              custom_value: false
+              multiple: false
+              sort: false
+
+        online_interruption_level:
+          name: Online Interruption Level
+          description: >
+            On iOS 15 and later, configure how online recovery notifications are delivered.
+          default: passive
+          selector:
+            select:
+              mode: dropdown
+              options:
+                - label: Default
+                  value: active
+                - label: Critical Notifications
+                  value: critical
+                - label: Time Sensitive Notifications
+                  value: time-sensitive
+                - label: Quiet Notifications Without Waking Screen
+                  value: passive
+              custom_value: false
+              multiple: false
+              sort: false
+
+        ios_notification_group:
+          name: Notification Group
+          description: >
+            Groups all MQTT connection notifications together on iOS
+            so they don't clutter your notification center.
+          default: mqtt_connection_state
+          selector:
+            text: {}
+
+    android_notification_options:
+      name: Android Notification Options
+      icon: mdi:robot
+      collapsed: true
+      input:
+
+        offline_high_priority:
+          name: High Priority (Offline)
+          description: >
+            Delivers offline alerts immediately, bypassing normal delivery delays.
+          default: true
+          selector:
+            boolean:
+
+        offline_sticky:
+          name: Sticky Notification (Offline)
+          description: >
+            Offline alerts remain in the notification shade until manually dismissed.
+          default: true
+          selector:
+            boolean:
+
+        online_high_priority:
+          name: High Priority (Online)
+          description: >
+            Delivers online recovery alerts immediately.
+          default: false
+          selector:
+            boolean:
+
+        online_sticky:
+          name: Sticky Notification (Online)
+          description: >
+            Online alerts remain in the notification shade until manually dismissed.
+          default: false
+          selector:
+            boolean:
+
+        android_notification_channel:
+          name: Notification Channel
+          description: >
+            Notification channel for Android devices.
+            A new channel will be created on first notification if it doesn't exist.
+            Customize sound, vibration, and importance in your device settings after creation.
+          default: MQTT Alerts
+          selector:
+            text: {}
 
     actions:
-      name: Actions
+      name: Custom Actions
       icon: mdi:lightning-bolt
-      collapsed: false
+      collapsed: true
       input:
 
         offline_actions:
           name: Offline Actions
           description: >
             Optional actions executed when a device goes offline.
+
 
             Available variables:
               • device_name
@@ -109,6 +226,7 @@ blueprint:
               • threshold_seconds
               • offline_time
               • offline_timestamp
+
 
             Examples:
 
@@ -130,12 +248,14 @@ blueprint:
           description: >
             Optional actions executed when a device comes back online.
 
+
             Available variables:
               • device_name
               • friendly_name
               • entity_id
               • online_time
               • online_timestamp
+
 
             Examples:
 
@@ -151,7 +271,7 @@ blueprint:
     monitoring_options:
       name: Monitoring Options
       icon: mdi:cog-transfer-outline
-      collapsed: false
+      collapsed: true
       input:
 
         offline_duration_minutes:
@@ -172,7 +292,6 @@ blueprint:
           description: >
             Select devices that should be excluded from monitoring.
             Shows binary_sensors with device_class 'connectivity'.
-            Select entities that end with '_connection_state'.
           default: []
           selector:
             entity:
@@ -187,12 +306,16 @@ blueprint:
             Input Text helper used internally to prevent duplicate
             offline notifications.
 
+
             Create one Input Text helper with maximum length of 255.
+
+
+            Need help? See the [Setup Instructions](https://github.com/dabo53ck/mqtt-connection-state-monitor#setup-instructions).
           selector:
             entity:
               domain: input_text
 
-mode: single
+mode: queued
 max_exceeded: silent
 
 trigger:
@@ -205,13 +328,63 @@ trigger:
 variables:
   offline_notifications_enabled: !input offline_notifications_enabled
   online_notifications_enabled: !input online_notifications_enabled
-  mobile_device: !input mobile_device
+  notification_devices: !input notification_devices
   notified_helper: !input notified_helper
   exclude_entities: !input exclude_entities
   offline_duration_minutes: !input offline_duration_minutes
+  offline_interruption_level: !input offline_interruption_level
+  online_interruption_level: !input online_interruption_level
+  ios_notification_group: !input ios_notification_group
+  offline_high_priority: !input offline_high_priority
+  offline_sticky: !input offline_sticky
+  online_high_priority: !input online_high_priority
+  online_sticky: !input online_sticky
+  android_notification_channel: !input android_notification_channel
 
   threshold_seconds: >
     {{ (offline_duration_minutes | int(180)) * 60 }}
+
+  offline_message_data: >
+    {% set msg = namespace(data={}) %}
+    {% set push = namespace(data={}) %}
+    {% set push.data = dict(push.data, **{ 'interruption-level': offline_interruption_level }) %}
+    {% if push.data %}
+      {% set msg.data = dict(msg.data, **{ 'push': push.data }) %}
+    {% endif %}
+    {% if ios_notification_group %}
+      {% set msg.data = dict(msg.data, **{ 'group': ios_notification_group }) %}
+    {% endif %}
+    {% if offline_high_priority %}
+      {% set msg.data = dict(msg.data, **{ 'ttl': 0, 'priority': 'high' }) %}
+    {% endif %}
+    {% if offline_sticky %}
+      {% set msg.data = dict(msg.data, **{ 'sticky': 'true' }) %}
+    {% endif %}
+    {% if android_notification_channel %}
+      {% set msg.data = dict(msg.data, **{ 'channel': android_notification_channel }) %}
+    {% endif %}
+    {{ msg.data }}
+
+  online_message_data: >
+    {% set msg = namespace(data={}) %}
+    {% set push = namespace(data={}) %}
+    {% set push.data = dict(push.data, **{ 'interruption-level': online_interruption_level }) %}
+    {% if push.data %}
+      {% set msg.data = dict(msg.data, **{ 'push': push.data }) %}
+    {% endif %}
+    {% if ios_notification_group %}
+      {% set msg.data = dict(msg.data, **{ 'group': ios_notification_group }) %}
+    {% endif %}
+    {% if online_high_priority %}
+      {% set msg.data = dict(msg.data, **{ 'ttl': 0, 'priority': 'high' }) %}
+    {% endif %}
+    {% if online_sticky %}
+      {% set msg.data = dict(msg.data, **{ 'sticky': 'true' }) %}
+    {% endif %}
+    {% if android_notification_channel %}
+      {% set msg.data = dict(msg.data, **{ 'channel': android_notification_channel }) %}
+    {% endif %}
+    {{ msg.data }}
 
 action:
 
@@ -276,7 +449,7 @@ action:
 
                         {{ ns.items | join('|') }}
 
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     target:
                       entity_id: !input notified_helper
                     data:
@@ -304,7 +477,7 @@ action:
                         {{ now().strftime('%Y-%m-%d %H:%M:%S') }}
 
                   #
-                  # OPTIONAL ONLINE NOTIFICATION
+                  # OPTIONAL ONLINE NOTIFICATION (MULTI-DEVICE)
                   #
                   - choose:
 
@@ -313,23 +486,22 @@ action:
                             value_template: >
                               {{
                                 online_notifications_enabled
-                                and mobile_device != ''
+                                and notification_devices | length > 0
                               }}
 
                         sequence:
 
-                          - device_id: !input mobile_device
-                            domain: mobile_app
-                            type: notify
-                            title: >
-                              🟢 {{ friendly_name }} online
-
-                            message: >
-                              {{ friendly_name }} is back online.
-
-                            data:
-                              group: mqtt_connection_state
-                              notification_icon: "mdi:wifi"
+                          - repeat:
+                              for_each: >
+                                {{ notification_devices | list }}
+                              sequence:
+                                - action: notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}
+                                  data:
+                                    title: >
+                                      🟢 {{ friendly_name }} online
+                                    message: >
+                                      {{ friendly_name }} is back online.
+                                    data: '{{ online_message_data }}'
 
                   #
                   # OPTIONAL ONLINE ACTIONS
@@ -415,7 +587,7 @@ action:
                   then:
 
                     #
-                    # OPTIONAL OFFLINE NOTIFICATION
+                    # OPTIONAL OFFLINE NOTIFICATION (MULTI-DEVICE)
                     #
                     - choose:
 
@@ -424,24 +596,22 @@ action:
                               value_template: >
                                 {{
                                   offline_notifications_enabled
-                                  and mobile_device != ''
+                                  and notification_devices | length > 0
                                 }}
 
                           sequence:
 
-                            - device_id: !input mobile_device
-                              domain: mobile_app
-                              type: notify
-                              title: >
-                                🔴 {{ friendly_name }} offline
-
-                              message: >
-                                {{ friendly_name }} has been offline for
-                                {{ offline_duration_minutes }} minutes.
-
-                              data:
-                                group: mqtt_connection_state
-                                notification_icon: "mdi:wifi-off"
+                            - repeat:
+                                for_each: >
+                                  {{ notification_devices | list }}
+                                sequence:
+                                  - action: notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}
+                                    data:
+                                      title: >
+                                        🔴 {{ friendly_name }} offline
+                                      message: >
+                                        {{ friendly_name }} has been offline for {{ offline_duration_minutes }} minutes.
+                                      data: '{{ offline_message_data }}'
 
                     - variables:
 
@@ -473,7 +643,7 @@ action:
                             {{ raw ~ '|' ~ device_name }}
                           {% endif %}
 
-                    - service: input_text.set_value
+                    - action: input_text.set_value
                       target:
                         entity_id: !input notified_helper
                       data:
