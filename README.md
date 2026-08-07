@@ -57,7 +57,7 @@ The blueprint requires one Input Text helper with a maximum length of **255 char
    - Optionally configure exclusion list and custom actions
 4. Click **"Import"** and **"Create Automation"**
 
-[![Open your Home Assistant instance and import a blueprint.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/dabo53ck/mqtt-connection-state-monitor/releases/download/v0.1.1-beta/mqtt-connection-state-monitor.yaml)
+[![Open your Home Assistant instance and import a blueprint.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://raw.githubusercontent.com/dabo53ck/mqtt-connection-state-monitor/main/mqtt-connection-state-monitor.yaml)
 
 ---
 
