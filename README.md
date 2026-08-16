@@ -1,7 +1,7 @@
 # MQTT Connection State Monitor for Home Assistant
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.1--beta-orange"/>
+  <img src="https://img.shields.io/badge/version-0.1.2--beta-orange"/>
 </p>
 
 **Home Assistant automation to monitor MQTT Connection State binary sensors and notify when devices remain offline longer than the configured duration.**
@@ -161,6 +161,24 @@ For environments with a large number of devices going offline simultaneously, co
 ---
 
 ## Changelog
+
+### [v0.1.2-beta] - 2026-08-15
+
+#### Fixed
+- Missing underscore in offline notify call (#3)
+- Inconsistent `device_name` extraction breaking deduplication (#3)
+- Broken `friendly_name` fallback: `replace('', ' ')` → `replace('_', ' ')` (#3)
+
+#### Changed
+- Pre-filter to offline-only entities before loop processing (#4)
+- Batch helper read/write: single `input_text.set_value` per run (#4)
+- Report actual offline duration instead of static threshold (#4)
+- `state_attr()` instead of `attributes.get()` for robustness (#4)
+- `max_exceeded: warning` + explicit `max: 10` (#4)
+- `offline_duration_minutes` minimum raised to 15 (#4)
+
+#### Note
+⚠️ If upgrading from v0.1.1-beta: Some users may need to clear their `input_text` helper value once after updating if devices don't recover correctly. This affects setups where devices were stored with the buggy trailing underscore format.
 
 ### [v0.1.1-beta] - 2026-08-07
 
