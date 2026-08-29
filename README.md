@@ -1,16 +1,16 @@
 # MQTT Connection State Monitor for Home Assistant
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.2--beta-orange"/>
+  <img src="https://img.shields.io/badge/version-0.2.0-blue"/>
 </p>
 
 **Home Assistant automation to monitor MQTT Connection State binary sensors and notify when devices remain offline longer than the configured duration.**
 
 ---
 
-## ⚠️ Public Beta
+## Stable Release
 
-This is a public beta release. Features may change, inputs may be added or modified. Please report bugs and suggestions via [Issues](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) or [Pull Requests](https://github.com/dabo53ck/mqtt-connection-state-monitor/pulls).
+v0.2.0 is a stable release. Please report bugs and suggestions via [Issues](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) or [Pull Requests](https://github.com/dabo53ck/mqtt-connection-state-monitor/pulls).
 
 ---
 
@@ -20,7 +20,7 @@ This is a public beta release. Features may change, inputs may be added or modif
 - [MQTT Connection State integration](https://github.com/studioIngrid/mqtt_connection_state) (installed separately via HACS)
 - One Input Text helper with maximum length of **255** for notification tracking
 
-⚠️ **Breaking Changes** — See [Changelog](#changelog) before updating from v0.1.0-beta.
+No breaking changes in v0.2.0. Upgrading from v0.1.x-beta? See the [Changelog](CHANGELOG.md).
 
 ---
 
@@ -67,6 +67,7 @@ The blueprint requires one Input Text helper with a maximum length of **255 char
 - **Duplicate notification protection** – Each device notified only once per offline event
 - **Multiple device notifications** – Send to multiple phones/tablets simultaneously
 - **Platform-aware notifications** – Separate iOS and Android options
+- **Notification timestamp** – Optional time-of-day (with seconds) on each alert; iOS subtitle / Android subject; 12H or 24H (24H default)
 - **iOS interruption level control** – Configure offline/online alert urgency (active/critical/time-sensitive/passive)
 - **iOS notification grouping** – Consolidate alerts on iOS using Group ID `mqtt_connection_state`
 - **Android high priority delivery** – Ensure offline alerts bypass normal delivery delays
@@ -88,11 +89,20 @@ Notifications are sent via the **Home Assistant Companion App** (iOS and Android
 **iOS Options:**
 - Interruption level (offline/online configurable)
 - Notification grouping via Group ID `mqtt_connection_state`
+- Timestamp shown as the notification subtitle
 
 **Android Options:**
 - High priority delivery (bypasses normal delays)
 - Sticky notifications (manual dismissal required)
 - Notification channels (custom sound, vibration, importance)
+- Timestamp shown as the notification subject line
+
+**Timestamp:**
+The current time (with seconds) is added to every notification — as the `subtitle`
+on iOS and the `subject` field on Android (the title and message are unchanged).
+Enable/disable it with **Include Timestamp in Notifications** (on by default) and
+pick **24-hour** (default, e.g. `14:23:15`) or **12-hour** (e.g. `02:23:15 PM`)
+via **Timestamp Format**. The value is the time the notification is sent.
 
 **Notification Messages:**
 - Offline: `🔴 {friendly_name} offline - Device has been offline for {duration} minutes.`
@@ -127,6 +137,7 @@ Use **Offline Actions** and **Online Actions** for integrations beyond Companion
 | `threshold_seconds` | Configured duration in seconds | `10800` |
 | `offline_time` | Formatted timestamp (YYYY-MM-DD HH:MM:SS) | `2026-07-20 14:23:15` |
 | `offline_timestamp` | ISO timestamp with timezone | `2026-07-20T14:23:15+02:00` |
+| `notification_time` | Send time, format per **Timestamp Format** setting | `14:23:15` (or `02:23:15 PM`) |
 
 **Online Actions:**
 | Variable | Description | Example |
@@ -136,6 +147,7 @@ Use **Offline Actions** and **Online Actions** for integrations beyond Companion
 | `entity_id` | Full entity ID | `binary_sensor.3_gang_schalter_connection_state` |
 | `online_time` | Formatted timestamp (YYYY-MM-DD HH:MM:SS) | `2026-07-20 17:45:30` |
 | `online_timestamp` | ISO timestamp with timezone | `2026-07-20T17:45:30+02:00` |
+| `notification_time` | Send time, format per **Timestamp Format** setting | `17:45:30` (or `05:45:30 PM`) |
 
 ### Example: Telegram Message
 
@@ -162,59 +174,7 @@ For environments with a large number of devices going offline simultaneously, co
 
 ## Changelog
 
-### [v0.1.2-beta] - 2026-08-15
-
-#### Fixed
-- Missing underscore in offline notify call (#3)
-- Inconsistent `device_name` extraction breaking deduplication (#3)
-- Broken `friendly_name` fallback: `replace('', ' ')` → `replace('_', ' ')` (#3)
-
-#### Changed
-- Pre-filter to offline-only entities before loop processing (#4)
-- Batch helper read/write: single `input_text.set_value` per run (#4)
-- Report actual offline duration instead of static threshold (#4)
-- `state_attr()` instead of `attributes.get()` for robustness (#4)
-- `max_exceeded: warning` + explicit `max: 10` (#4)
-- `offline_duration_minutes` minimum raised to 15 (#4)
-
-#### Note
-⚠️ If upgrading from v0.1.1-beta: Some users may need to clear their `input_text` helper value once after updating if devices don't recover correctly. This affects setups where devices were stored with the buggy trailing underscore format.
-
-### [v0.1.1-beta] - 2026-08-07
-
-⚠️ **Breaking Changes** — Read carefully before updating.
-
-#### Breaking Changes
-- **Notification selector:** Changed from `entity` (notify domain) to `device` (mobile_app filter)
-  - Existing notification target selections need reconfiguration
-  - Only Companion App devices supported directly; use Custom Actions for Alexa/Telegram/etc.
-- **Minimum version:** Now requires Home Assistant 2024.8.0 or newer
-
-#### Added
-- Multiple device notification support (#2)
-- Platform-aware notification options (iOS / Android)
-- iOS interruption level control (offline/online)
-- iOS notification grouping
-- Android high priority delivery
-- Android sticky notifications
-- Android notification channels
-
-#### Fixed
-- Concurrent event race condition (#1)
-
-#### Tested
-- ✅ iOS & Android notifications
-- ✅ Multi-device parallel events
-
-### v0.1.0-beta – Initial public beta release
-
-- Delayed offline detection
-- Duplicate notification protection
-- iOS notification grouping
-- Device exclusion list
-- Custom notification icons
-- `max_exceeded: silent` to prevent log warnings
-- Template error fixes for `last_changed` handling
+See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
 ---
 

@@ -6,7 +6,7 @@ blueprint:
   description: |-
     # MQTT Connection State Monitor
 
-    ![Version](https://img.shields.io/badge/version-0.1.2_beta-orange) &nbsp;&nbsp;&nbsp; [![GitHub](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/dabo53ck/mqtt-connection-state-monitor) &nbsp;&nbsp;&nbsp; [![Issues](https://img.shields.io/badge/Issues-red)](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) &nbsp;&nbsp;&nbsp; [![Community](https://img.shields.io/badge/Community-Thread-blue)](https://community.home-assistant.io/t/release-mqtt-connection-state-monitor-for-home-assistant/)
+    ![Version](https://img.shields.io/badge/version-0.2.0-blue) &nbsp;&nbsp;&nbsp; [![GitHub](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/dabo53ck/mqtt-connection-state-monitor) &nbsp;&nbsp;&nbsp; [![Issues](https://img.shields.io/badge/Issues-red)](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) &nbsp;&nbsp;&nbsp; [![Community](https://img.shields.io/badge/Community-Thread-blue)](https://community.home-assistant.io/t/release-mqtt-connection-state-monitor-for-home-assistant/)
 
     Monitor your MQTT-connected devices and receive timely notifications when they go offline. Unlike basic connectivity checks, this blueprint implements **delayed detection** to avoid false alarms from brief connection drops, while maintaining robust duplicate protection so you're not spammed with repeated alerts.
 
@@ -20,6 +20,7 @@ blueprint:
     • **Duplicate notification protection** – Each device notified only once per offline event
     • **Multiple device notifications** – Send alerts to multiple phones/tablets simultaneously
     • **Platform-aware notifications** – Separate iOS and Android notification options
+    • **Notification timestamp** – Optional time-of-day with seconds on every alert (iOS subtitle / Android subject); 12H or 24H
     • **iOS interruption level control** – Configure offline and online alert urgency independently
     • **iOS notification grouping** – Consolidates alerts into a single grouped notification
     • **Android high priority delivery** – Ensure offline alerts are delivered immediately
@@ -70,6 +71,31 @@ blueprint:
           default: true
           selector:
             boolean: {}
+        notification_timestamp_enabled:
+          name: Include Timestamp in Notifications
+          description: >-
+            Adds the current time (with seconds) to each Companion App
+            notification. Shown as the subtitle on iOS and as the subject
+            line on Android. Does not change the title or message.
+          default: true
+          selector:
+            boolean: {}
+        notification_time_format:
+          name: Timestamp Format
+          description: >-
+            Clock format for the notification timestamp.
+          default: "24h"
+          selector:
+            select:
+              mode: dropdown
+              options:
+                - label: 24-hour (14:23:15)
+                  value: "24h"
+                - label: 12-hour (02:23:15 PM)
+                  value: "12h"
+              custom_value: false
+              multiple: false
+              sort: false
         notification_devices:
           name: Notification Devices
           description: >-
@@ -199,6 +225,7 @@ blueprint:
             • threshold_seconds
             • offline_time
             • offline_timestamp
+            • notification_time
 
             Examples:
             Telegram: Device {{ friendly_name }} is offline.
@@ -217,6 +244,7 @@ blueprint:
             • entity_id
             • online_time
             • online_timestamp
+            • notification_time
 
             Examples:
             Telegram: Device {{ friendly_name }} is back online.
@@ -278,6 +306,8 @@ trigger:
 variables:
   offline_notifications_enabled: !input offline_notifications_enabled
   online_notifications_enabled: !input online_notifications_enabled
+  notification_timestamp_enabled: !input notification_timestamp_enabled
+  notification_time_format: !input notification_time_format
   notification_devices: !input notification_devices
   notified_helper: !input notified_helper
   exclude_entities: !input exclude_entities
@@ -291,6 +321,7 @@ variables:
   online_sticky: !input online_sticky
   android_notification_channel: !input android_notification_channel
   threshold_seconds: "{{ (offline_duration_minutes | int(180)) * 60 }}"
+  timestamp_format: "{{ '%I:%M:%S %p' if notification_time_format == '12h' else '%H:%M:%S' }}"
   offline_message_data: >-
     {% set msg = namespace(data={}) %}
     {% set push = namespace(data={}) %}
@@ -378,6 +409,11 @@ action:
                        | default(device_name | replace('_', ' ') | title, true) }}
                   online_timestamp: "{{ now() }}"
                   online_time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+                  notification_time: "{{ now().strftime(timestamp_format) }}"
+                  online_notification_data: >-
+                    {{ dict(online_message_data,
+                       **{'subtitle': notification_time, 'subject': notification_time})
+                       if notification_timestamp_enabled else online_message_data }}
               # 3. Send notification (if enabled)
               - choose:
                   - conditions:
@@ -393,7 +429,7 @@ action:
                               data:
                                 title: "🟢 {{ friendly_name }} online"
                                 message: "{{ friendly_name }} is back online."
-                                data: "{{ online_message_data }}"
+                                data: "{{ online_notification_data }}"
               # 4. Run online actions
               - choose:
                   - conditions:
@@ -447,6 +483,11 @@ action:
                     offline_seconds: "{{ repeat.item.offline_seconds }}"
                     offline_timestamp: "{{ now() }}"
                     offline_time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+                    notification_time: "{{ now().strftime(timestamp_format) }}"
+                    offline_notification_data: >-
+                      {{ dict(offline_message_data,
+                         **{'subtitle': notification_time, 'subject': notification_time})
+                         if notification_timestamp_enabled else offline_message_data }}
                 # OPTIONAL OFFLINE NOTIFICATION (MULTI-DEVICE)
                 - choose:
                     - conditions:
@@ -464,7 +505,7 @@ action:
                                   message: >-
                                     {{ friendly_name }} has been offline for
                                     {{ (offline_seconds / 60) | round(0) }} minutes.
-                                  data: "{{ offline_message_data }}"
+                                  data: "{{ offline_notification_data }}"
                 # OPTIONAL OFFLINE ACTIONS
                 - choose:
                     - conditions:
