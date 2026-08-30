@@ -2,11 +2,11 @@ blueprint:
   name: MQTT Connection State Monitor
   author: dabo53ck
   homeassistant:
-    min_version: "2024.8.0"
+    min_version: "2026.3.0"
   description: |-
     # MQTT Connection State Monitor
 
-    ![Version](https://img.shields.io/badge/version-0.2.0-blue) &nbsp;&nbsp;&nbsp; [![GitHub](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/dabo53ck/mqtt-connection-state-monitor) &nbsp;&nbsp;&nbsp; [![Issues](https://img.shields.io/badge/Issues-red)](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) &nbsp;&nbsp;&nbsp; [![Community](https://img.shields.io/badge/Community-Thread-blue)](https://community.home-assistant.io/t/release-mqtt-connection-state-monitor-for-home-assistant/)
+    ![Version](https://img.shields.io/badge/version-0.2.1-blue) &nbsp;&nbsp;&nbsp; [![GitHub](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/dabo53ck/mqtt-connection-state-monitor) &nbsp;&nbsp;&nbsp; [![Issues](https://img.shields.io/badge/Issues-red)](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) &nbsp;&nbsp;&nbsp; [![Community](https://img.shields.io/badge/Community-Thread-blue)](https://community.home-assistant.io/t/release-mqtt-connection-state-monitor-for-home-assistant/)
 
     Monitor your MQTT-connected devices and receive timely notifications when they go offline. Unlike basic connectivity checks, this blueprint implements **delayed detection** to avoid false alarms from brief connection drops, while maintaining robust duplicate protection so you're not spammed with repeated alerts.
 
@@ -16,11 +16,13 @@ blueprint:
 
     <details><summary>Key Features</summary>
 
-    • **Configurable offline threshold** – Choose how long a device must stay offline before triggering (default: 180 minutes)
+    • **Configurable offline threshold** – Choose how long a device must stay offline before triggering (default: 3 hours)
+    • **Battery-device offline threshold** – Optional separate, longer threshold auto-applied to battery-powered Zigbee devices (they check in less often); disabled by default
     • **Duplicate notification protection** – Each device notified only once per offline event
     • **Multiple device notifications** – Send alerts to multiple phones/tablets simultaneously
     • **Platform-aware notifications** – Separate iOS and Android notification options
     • **Notification timestamp** – Optional time-of-day with seconds on every alert (iOS subtitle / Android subject); 12H or 24H
+    • **Customizable notification text** – Override the offline/online notification title and message with your own templates
     • **iOS interruption level control** – Configure offline and online alert urgency independently
     • **iOS notification grouping** – Consolidates alerts into a single grouped notification
     • **Android high priority delivery** – Ensure offline alerts are delivered immediately
@@ -35,9 +37,17 @@ blueprint:
 
     <details><summary>Requirements</summary>
 
-    • Home Assistant 2024.8.0 or newer
+    • Home Assistant 2026.3.0 or newer (the offline-duration inputs use the hours/minutes duration picker)
     • [MQTT Connection State integration](https://github.com/studioIngrid/mqtt_connection_state) (installed separately via HACS)
     • One Input Text helper with maximum length of 255 characters (for tracking notified devices)
+    </details>
+
+    <details><summary>Upgrading from v0.2.0 or earlier</summary>
+
+    **Breaking change:** "Offline Duration" is now an hours/minutes picker instead of a
+    raw minute count. After updating the blueprint, open the automation and re-enter
+    the offline duration (e.g. 3 h 0 min for the old default of 180). Existing
+    automations keep working but will show the threshold as empty until re-saved.
     </details>
 
     <details><summary>Known Limitation</summary>
@@ -108,6 +118,45 @@ blueprint:
               filter:
                 - integration: mobile_app
               multiple: true
+        offline_title:
+          name: Offline Notification Title
+          description: >-
+            Title line for the offline Companion App notification. May contain
+            templates using the context variables friendly_name, device_name,
+            entity_id, offline_seconds and notification_time. Leave as default
+            for the built-in wording.
+          default: "🔴 {{ friendly_name }} offline"
+          selector:
+            text: {}
+        offline_message:
+          name: Offline Notification Message
+          description: >-
+            Body text for the offline Companion App notification. Supports the
+            same context variables as the title.
+          default: >-
+            {{ friendly_name }} has been offline for
+            {{ (offline_seconds / 60) | round(0) }} minutes.
+          selector:
+            text:
+              multiline: true
+        online_title:
+          name: Online Notification Title
+          description: >-
+            Title line for the recovery (back online) Companion App
+            notification. May use friendly_name, device_name, entity_id and
+            notification_time.
+          default: "🟢 {{ friendly_name }} online"
+          selector:
+            text: {}
+        online_message:
+          name: Online Notification Message
+          description: >-
+            Body text for the recovery Companion App notification. Supports the
+            same context variables as the title.
+          default: "{{ friendly_name }} is back online."
+          selector:
+            text:
+              multiline: true
 
     ios_notification_options:
       name: iOS Notification Options
@@ -222,7 +271,8 @@ blueprint:
             • friendly_name
             • entity_id
             • offline_seconds
-            • threshold_seconds
+            • threshold_seconds (effective value for this device)
+            • battery_powered (true if matched as a battery device)
             • offline_time
             • offline_timestamp
             • notification_time
@@ -258,19 +308,34 @@ blueprint:
       icon: mdi:cog-transfer-outline
       collapsed: true
       input:
-        offline_duration_minutes:
-          name: Offline Duration (minutes)
+        offline_duration:
+          name: Offline Duration
           description: >-
             Time a device must remain offline before notifications and actions are
             executed. Detection is bound to a 15-minute polling cycle, so actual
-            detection may occur up to 15 minutes after this threshold is reached.
-          default: 180
+            detection may occur up to 15 minutes after this threshold is reached;
+            values below 15 minutes are treated as 15 minutes.
+          default:
+            hours: 3
+            minutes: 0
           selector:
-            number:
-              min: 15
-              max: 10080
-              mode: box
-              unit_of_measurement: minutes
+            duration:
+              enable_second: false
+        battery_offline_duration:
+          name: Battery Device Offline Duration
+          description: >-
+            Separate offline threshold for battery-powered Zigbee devices. Any
+            monitored device that also exposes a battery entity (battery percent
+            sensor or Low/OK binary sensor) is auto-detected and uses this threshold
+            instead of the one above, because sleepy battery devices check in far
+            less often. Leave at 0 h 0 min to disable — all devices then use the
+            Offline Duration above.
+          default:
+            hours: 0
+            minutes: 0
+          selector:
+            duration:
+              enable_second: false
         exclude_entities:
           name: Exclude Devices
           description: >-
@@ -288,7 +353,10 @@ blueprint:
           description: >-
             Input Text helper used internally to prevent duplicate
             offline notifications. Create one Input Text helper with
-            maximum length of 255. Need help? See the Setup Instructions.
+            **maximum length of 255**.
+            [Click here to create it](https://my.home-assistant.io/redirect/config_flow_start/?domain=input_text).
+            Need help? See the
+            [Setup Instructions](https://github.com/dabo53ck/mqtt-connection-state-monitor#setup-instructions).
           selector:
             entity:
               domain: input_text
@@ -311,7 +379,8 @@ variables:
   notification_devices: !input notification_devices
   notified_helper: !input notified_helper
   exclude_entities: !input exclude_entities
-  offline_duration_minutes: !input offline_duration_minutes
+  offline_duration: !input offline_duration
+  battery_offline_duration: !input battery_offline_duration
   offline_interruption_level: !input offline_interruption_level
   online_interruption_level: !input online_interruption_level
   ios_notification_group: !input ios_notification_group
@@ -320,7 +389,10 @@ variables:
   online_high_priority: !input online_high_priority
   online_sticky: !input online_sticky
   android_notification_channel: !input android_notification_channel
-  threshold_seconds: "{{ (offline_duration_minutes | int(180)) * 60 }}"
+  offline_duration_seconds: "{{ (offline_duration.hours | int(0)) * 3600 + (offline_duration.minutes | int(0)) * 60 }}"
+  battery_offline_duration_seconds: "{{ (battery_offline_duration.hours | int(0)) * 3600 + (battery_offline_duration.minutes | int(0)) * 60 }}"
+  threshold_seconds: "{{ [offline_duration_seconds | int(0), 900] | max }}"
+  battery_threshold_seconds: "{{ 0 if (battery_offline_duration_seconds | int(0)) == 0 else [battery_offline_duration_seconds | int(0), 900] | max }}"
   timestamp_format: "{{ '%I:%M:%S %p' if notification_time_format == '12h' else '%H:%M:%S' }}"
   offline_message_data: >-
     {% set msg = namespace(data={}) %}
@@ -427,8 +499,8 @@ action:
                             - action: >-
                                 notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}
                               data:
-                                title: "🟢 {{ friendly_name }} online"
-                                message: "{{ friendly_name }} is back online."
+                                title: !input online_title
+                                message: !input online_message
                                 data: "{{ online_notification_data }}"
               # 4. Run online actions
               - choose:
@@ -452,8 +524,44 @@ action:
                 {% else %}
                 {{ raw.split('|') }}
                 {% endif %}
+              # Device IDs and registry identifier strings ("<domain>:<id>",
+              # e.g. the Zigbee IEEE address) of every device that exposes a
+              # device_class: battery entity. Used ONLY as a membership set:
+              # a monitored connectivity device counts as battery-powered when
+              # one of ITS own device IDs / identifiers is in here. Device
+              # names are never used - they are not unique in HA. This set is
+              # a superset of the whole instance; it is only ever consulted for
+              # entities that already passed the monitored-connectivity filter
+              # in due_devices below, so unrelated battery devices (phones,
+              # UPS, vacuums, ...) can never be acted on. Empty (scan skipped)
+              # when the battery threshold is disabled.
+              battery_device_idents: >-
+                {% if battery_threshold_seconds | int(0) == 0 %}
+                []
+                {% else %}
+                {% set bns = namespace(ids=[]) %}
+                {% for s in (states.sensor
+                       | selectattr('attributes.device_class', 'defined')
+                       | selectattr('attributes.device_class', 'eq', 'battery')
+                       | list)
+                     + (states.binary_sensor
+                       | selectattr('attributes.device_class', 'defined')
+                       | selectattr('attributes.device_class', 'eq', 'battery')
+                       | list) %}
+                  {% set d = device_id(s.entity_id) %}
+                  {% if d %}
+                    {% set bns.ids = bns.ids + [d] %}
+                    {% for ident in device_attr(d, 'identifiers') or [] %}
+                      {% set bns.ids = bns.ids + [ident | join(':')] %}
+                    {% endfor %}
+                  {% endif %}
+                {% endfor %}
+                {{ bns.ids | unique | list }}
+                {% endif %}
           # Single-pass computation of all "due" devices, pre-filtered
-          # to state == 'off' before any further processing.
+          # to state == 'off' before any further processing. Battery-powered
+          # devices (this device's own id/identifier is in battery_device_idents)
+          # use the battery threshold when it is enabled.
           - variables:
               due_devices: >-
                 {% set ns = namespace(items=[]) %}
@@ -467,9 +575,21 @@ action:
                        | replace('_connection_state', '') %}
                   {% set lc = st.last_changed %}
                   {% set osec = ((as_timestamp(now()) - as_timestamp(lc)) | int) if lc else 0 %}
-                  {% if osec >= threshold_seconds and dname not in current_notified %}
+                  {% set cd = device_id(st.entity_id) %}
+                  {% set ck = namespace(ids=[]) %}
+                  {% if cd %}
+                    {% set ck.ids = ck.ids + [cd] %}
+                    {% for ident in device_attr(cd, 'identifiers') or [] %}
+                      {% set ck.ids = ck.ids + [ident | join(':')] %}
+                    {% endfor %}
+                  {% endif %}
+                  {% set is_batt = ck.ids | select('in', battery_device_idents) | list | length > 0 %}
+                  {% set eff_threshold = battery_threshold_seconds | int(0)
+                       if (is_batt and (battery_threshold_seconds | int(0)) > 0)
+                       else threshold_seconds | int(0) %}
+                  {% if osec >= eff_threshold and dname not in current_notified %}
                     {% set fname = state_attr(st.entity_id, 'friendly_name') | default(dname | replace('_', ' ') | title, true) %}
-                    {% set ns.items = ns.items + [{'entity_id': st.entity_id, 'device_name': dname, 'friendly_name': fname, 'offline_seconds': osec}] %}
+                    {% set ns.items = ns.items + [{'entity_id': st.entity_id, 'device_name': dname, 'friendly_name': fname, 'offline_seconds': osec, 'threshold_seconds': eff_threshold, 'battery_powered': is_batt}] %}
                   {% endif %}
                 {% endfor %}
                 {{ ns.items }}
@@ -481,6 +601,8 @@ action:
                     device_name: "{{ repeat.item.device_name }}"
                     friendly_name: "{{ repeat.item.friendly_name }}"
                     offline_seconds: "{{ repeat.item.offline_seconds }}"
+                    threshold_seconds: "{{ repeat.item.threshold_seconds }}"
+                    battery_powered: "{{ repeat.item.battery_powered }}"
                     offline_timestamp: "{{ now() }}"
                     offline_time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
                     notification_time: "{{ now().strftime(timestamp_format) }}"
@@ -501,10 +623,8 @@ action:
                               - action: >-
                                   notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}
                                 data:
-                                  title: "🔴 {{ friendly_name }} offline"
-                                  message: >-
-                                    {{ friendly_name }} has been offline for
-                                    {{ (offline_seconds / 60) | round(0) }} minutes.
+                                  title: !input offline_title
+                                  message: !input offline_message
                                   data: "{{ offline_notification_data }}"
                 # OPTIONAL OFFLINE ACTIONS
                 - choose:
