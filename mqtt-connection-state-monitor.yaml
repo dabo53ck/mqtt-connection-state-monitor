@@ -6,7 +6,7 @@ blueprint:
   description: |-
     # MQTT Connection State Monitor
 
-    ![Version](https://img.shields.io/badge/version-0.2.1-blue) &nbsp;&nbsp;&nbsp; [![GitHub](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/dabo53ck/mqtt-connection-state-monitor) &nbsp;&nbsp;&nbsp; [![Issues](https://img.shields.io/badge/Issues-red)](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) &nbsp;&nbsp;&nbsp; [![Community](https://img.shields.io/badge/Community-Thread-blue)](https://community.home-assistant.io/t/release-mqtt-connection-state-monitor-for-home-assistant/)
+    ![Version](https://img.shields.io/badge/version-0.2.2-blue) &nbsp;&nbsp;&nbsp; [![GitHub](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/dabo53ck/mqtt-connection-state-monitor) &nbsp;&nbsp;&nbsp; [![Issues](https://img.shields.io/badge/Issues-red)](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) &nbsp;&nbsp;&nbsp; [![Community](https://img.shields.io/badge/Community-Thread-blue)](https://community.home-assistant.io/t/release-mqtt-connection-state-monitor-for-home-assistant/)
 
     Monitor your MQTT-connected devices and receive timely notifications when they go offline. Unlike basic connectivity checks, this blueprint implements **delayed detection** to avoid false alarms from brief connection drops, while maintaining robust duplicate protection so you're not spammed with repeated alerts.
 
@@ -30,7 +30,9 @@ blueprint:
     • **Android notification channels** – Route alerts to a dedicated channel with custom sound and importance
     • **Flexible notification options** – Enable/disable offline and online notifications independently
     • **Custom actions support** – Run scripts, webhooks, Telegram/Discord messages alongside or instead of Companion App notifications
+    • **Configurable check interval** – Run the periodic offline scan every 5, 10, 15, or 30 minutes
     • **Automatic recovery handling** – Tracks when devices come back online and clears from notification queue
+    • **Self-healing tracking list** – The periodic scan clears devices that recovered while their online event was missed (e.g. an HA restart), so future alerts keep working
     • **Device exclusion list** – Exclude specific entities from monitoring
     • **Rich context variables** – Pass device details, timestamps, and durations to custom actions
     </details>
@@ -54,7 +56,7 @@ blueprint:
 
     Due to the 255-character limit of Input Text helpers, approximately **10-15 devices** can be tracked simultaneously depending on the length of device names. For larger deployments, consider splitting into multiple blueprints with separate helpers.
 
-    Additionally, offline detection runs on a **15-minute polling cycle**, so actual detection may occur up to 15 minutes after the configured threshold is reached.
+    Additionally, offline detection runs on a periodic polling cycle (**Check Interval**, default 15 minutes), so actual detection may occur up to one interval after the configured threshold is reached.
     </details>
   domain: automation
   source_url: https://github.com/dabo53ck/mqtt-connection-state-monitor
@@ -308,13 +310,39 @@ blueprint:
       icon: mdi:cog-transfer-outline
       collapsed: true
       input:
+        check_interval_minutes:
+          name: Check Interval
+          description: >-
+            How often the periodic offline check runs. A shorter interval detects
+            outages sooner; a longer interval evaluates the monitoring templates
+            less often, which is lighter on large or constrained instances. This
+            is also the minimum effective offline threshold — an Offline Duration
+            (or Battery Device Offline Duration) shorter than one interval is
+            treated as one interval.
+          default: "15"
+          selector:
+            select:
+              mode: dropdown
+              options:
+                - label: Every 5 minutes
+                  value: "5"
+                - label: Every 10 minutes
+                  value: "10"
+                - label: Every 15 minutes
+                  value: "15"
+                - label: Every 30 minutes
+                  value: "30"
+              custom_value: false
+              multiple: false
+              sort: false
         offline_duration:
           name: Offline Duration
           description: >-
             Time a device must remain offline before notifications and actions are
-            executed. Detection is bound to a 15-minute polling cycle, so actual
-            detection may occur up to 15 minutes after this threshold is reached;
-            values below 15 minutes are treated as 15 minutes.
+            executed. Detection is bound to the periodic check (see Check
+            Interval), so actual detection may occur up to one interval after this
+            threshold is reached; a value shorter than one interval is treated as
+            one interval.
           default:
             hours: 3
             minutes: 0
@@ -336,6 +364,18 @@ blueprint:
           selector:
             duration:
               enable_second: false
+        self_heal_notify:
+          name: Notify on Self-Healed Recovery
+          description: >-
+            If a device's "back online" event is missed (for example, Home
+            Assistant restarted while it was recovering), the periodic check still
+            removes it from the tracking helper so future offline alerts work
+            again. With this enabled, that self-healed recovery also sends the
+            normal online notification and runs the Online Actions, exactly like a
+            live recovery. Disable to heal the tracking list silently.
+          default: true
+          selector:
+            boolean: {}
         exclude_entities:
           name: Exclude Devices
           description: >-
@@ -365,9 +405,26 @@ mode: queued
 max: 10
 max_exceeded: warning
 
+# time_pattern does not render templates in its own options, so the interval
+# cannot be a single templated trigger. Instead, one fixed trigger per allowed
+# interval, switched on by `enabled` (a limited template over the trigger
+# variable, evaluated once at load).
+trigger_variables:
+  check_interval_minutes: !input check_interval_minutes
+
 trigger:
   - platform: time_pattern
+    minutes: "/5"
+    enabled: "{{ check_interval_minutes | string == '5' }}"
+  - platform: time_pattern
+    minutes: "/10"
+    enabled: "{{ check_interval_minutes | string == '10' }}"
+  - platform: time_pattern
     minutes: "/15"
+    enabled: "{{ check_interval_minutes | string == '15' }}"
+  - platform: time_pattern
+    minutes: "/30"
+    enabled: "{{ check_interval_minutes | string == '30' }}"
   - platform: event
     event_type: mqtt_connection_state_changed
 
@@ -379,6 +436,8 @@ variables:
   notification_devices: !input notification_devices
   notified_helper: !input notified_helper
   exclude_entities: !input exclude_entities
+  check_interval_minutes: !input check_interval_minutes
+  self_heal_notify: !input self_heal_notify
   offline_duration: !input offline_duration
   battery_offline_duration: !input battery_offline_duration
   offline_interruption_level: !input offline_interruption_level
@@ -391,8 +450,9 @@ variables:
   android_notification_channel: !input android_notification_channel
   offline_duration_seconds: "{{ (offline_duration.hours | int(0)) * 3600 + (offline_duration.minutes | int(0)) * 60 }}"
   battery_offline_duration_seconds: "{{ (battery_offline_duration.hours | int(0)) * 3600 + (battery_offline_duration.minutes | int(0)) * 60 }}"
-  threshold_seconds: "{{ [offline_duration_seconds | int(0), 900] | max }}"
-  battery_threshold_seconds: "{{ 0 if (battery_offline_duration_seconds | int(0)) == 0 else [battery_offline_duration_seconds | int(0), 900] | max }}"
+  check_interval_seconds: "{{ (check_interval_minutes | int(15)) * 60 }}"
+  threshold_seconds: "{{ [offline_duration_seconds | int(0), check_interval_seconds | int(900)] | max }}"
+  battery_threshold_seconds: "{{ 0 if (battery_offline_duration_seconds | int(0)) == 0 else [battery_offline_duration_seconds | int(0), check_interval_seconds | int(900)] | max }}"
   timestamp_format: "{{ '%I:%M:%S %p' if notification_time_format == '12h' else '%H:%M:%S' }}"
   offline_message_data: >-
     {% set msg = namespace(data={}) %}
@@ -593,6 +653,29 @@ action:
                   {% endif %}
                 {% endfor %}
                 {{ ns.items }}
+          # Devices still listed in the tracking helper but now reporting
+          # online — their event-triggered recovery was missed (HA restart,
+          # event-bus hiccup, integration didn't fire). Same monitored-
+          # connectivity scan as due_devices, filtered to state == 'on'.
+          # These are always cleared from the helper by the write below;
+          # self_heal_notify controls whether they also notify / run actions.
+          - variables:
+              recovered_devices: >-
+                {% set ns = namespace(items=[]) %}
+                {% for st in states.binary_sensor
+                     | selectattr('entity_id', 'search', 'connection_state$')
+                     | rejectattr('entity_id', 'in', exclude_entities)
+                     | selectattr('state', 'eq', 'on')
+                     | list %}
+                  {% set dname = st.entity_id
+                       | replace('binary_sensor.', '')
+                       | replace('_connection_state', '') %}
+                  {% if dname in current_notified %}
+                    {% set fname = state_attr(st.entity_id, 'friendly_name') | default(dname | replace('_', ' ') | title, true) %}
+                    {% set ns.items = ns.items + [{'entity_id': st.entity_id, 'device_name': dname, 'friendly_name': fname}] %}
+                  {% endif %}
+                {% endfor %}
+                {{ ns.items }}
           - repeat:
               for_each: "{{ due_devices }}"
               sequence:
@@ -632,14 +715,60 @@ action:
                         - condition: template
                           value_template: "{{ true }}"
                       sequence: !input offline_actions
-          # Single batched helper write for the whole run — pipe-delimited format
+          # SELF-HEAL: devices that recovered while their online event was
+          # missed. Optionally notify / run online_actions per self_heal_notify;
+          # the helper write below removes them regardless.
+          - repeat:
+              for_each: "{{ recovered_devices }}"
+              sequence:
+                - variables:
+                    entity_id: "{{ repeat.item.entity_id }}"
+                    device_name: "{{ repeat.item.device_name }}"
+                    friendly_name: "{{ repeat.item.friendly_name }}"
+                    online_timestamp: "{{ now() }}"
+                    online_time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+                    notification_time: "{{ now().strftime(timestamp_format) }}"
+                    online_notification_data: >-
+                      {{ dict(online_message_data,
+                         **{'subtitle': notification_time, 'subject': notification_time})
+                         if notification_timestamp_enabled else online_message_data }}
+                # OPTIONAL SELF-HEAL ONLINE NOTIFICATION (MULTI-DEVICE)
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: >-
+                            {{ self_heal_notify and online_notifications_enabled
+                               and notification_devices | length > 0 }}
+                      sequence:
+                        - repeat:
+                            for_each: "{{ notification_devices | list }}"
+                            sequence:
+                              - action: >-
+                                  notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}
+                                data:
+                                  title: !input online_title
+                                  message: !input online_message
+                                  data: "{{ online_notification_data }}"
+                # OPTIONAL SELF-HEAL ONLINE ACTIONS
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ self_heal_notify }}"
+                      sequence: !input online_actions
+          # Single batched helper write for the whole run — pipe-delimited
+          # format. Adds newly-offline devices and drops self-healed ones;
+          # skipped entirely when neither list has anything.
           - if:
               - condition: template
-                value_template: "{{ due_devices | length > 0 }}"
+                value_template: >-
+                  {{ (due_devices | length > 0) or (recovered_devices | length > 0) }}
             then:
               - action: input_text.set_value
                 target:
                   entity_id: !input notified_helper
                 data:
                   value: >-
-                    {{ (current_notified + (due_devices | map(attribute='device_name') | list)) | join('|') }}
+                    {{ ((current_notified
+                         | reject('in', recovered_devices | map(attribute='device_name') | list)
+                         | list)
+                        + (due_devices | map(attribute='device_name') | list)) | join('|') }}

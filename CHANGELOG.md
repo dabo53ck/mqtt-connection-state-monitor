@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented here.
 
+## [v0.2.2] - 2026-09-05
+
+### Added
+- **Check Interval** — new input in *Monitoring Options* to run the periodic
+  offline check every 5 / 10 / 15 / 30 minutes (`default: 15`, so existing
+  automations keep the current cadence after a re-import). Shorter intervals
+  detect outages sooner; longer intervals cut template-evaluation load on large
+  or constrained instances (#10).
+- **Self-healing of the tracking helper** — the periodic check now reconciles the
+  notified-devices helper against live state. Any device still listed as offline
+  but currently reporting online (typically because its `online` recovery event
+  was missed during a Home Assistant restart) is removed from the helper, so it
+  gets "back online" handling now and future offline alerts for it work again.
+  Previously such a device was silently skipped for every future offline alert
+  until the helper was edited by hand (#9).
+- **Notify on Self-Healed Recovery** — new toggle in *Monitoring Options*
+  (`default: true`) controlling whether a self-healed recovery also sends the
+  normal online notification and runs *Online Actions*, or heals the tracking
+  list silently (#9).
+
+### Changed
+- The minimum effective offline threshold now follows **Check Interval** (one
+  polling cycle) instead of a hard-coded 15 minutes. With the default interval
+  the previous 900-second floor is unchanged (#8, #10).
+- Blueprint input descriptions and `README.md` no longer hard-code a
+  "15-minute polling cycle".
+
 ## [v0.2.1] - 2026-08-30
 
 ### ⚠️ Breaking Changes

@@ -1,7 +1,7 @@
 # MQTT Connection State Monitor for Home Assistant
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.2.1-blue"/>
+  <img src="https://img.shields.io/badge/version-0.2.2-blue"/>
 </p>
 
 **Home Assistant automation to monitor MQTT Connection State binary sensors and notify when devices remain offline longer than the configured duration.**
@@ -10,7 +10,7 @@
 
 ## Stable Release
 
-v0.2.1 is a stable release. Please report bugs and suggestions via [Issues](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) or [Pull Requests](https://github.com/dabo53ck/mqtt-connection-state-monitor/pulls).
+v0.2.2 is a stable release. Please report bugs and suggestions via [Issues](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) or [Pull Requests](https://github.com/dabo53ck/mqtt-connection-state-monitor/pulls).
 
 ---
 
@@ -58,6 +58,7 @@ The blueprint requires one Input Text helper with a maximum length of **255 char
    - Select the Input Text helper you created
    - Choose **notification devices** (multiple Companion App devices supported)
    - Set **Offline Duration** (default: 3 h 0 min)
+   - Optionally adjust **Check Interval** – how often the periodic scan runs (5 / 10 / 15 / 30 min, default 15)
    - Optionally set **Battery Device Offline Duration** – a separate, longer threshold auto-applied to battery-powered Zigbee devices (0 = disabled)
    - Optionally configure iOS/Android notification settings
    - Optionally configure exclusion list and custom actions
@@ -83,7 +84,9 @@ The blueprint requires one Input Text helper with a maximum length of **255 char
 - **Android notification channels** – Route alerts to a dedicated channel with custom sound/importance
 - **Optional offline/online notifications** – Enable/disable Companion App push notifications separately
 - **Optional offline/online actions** – Trigger scripts, webhooks, Telegram, Discord, etc.
+- **Configurable check interval** – Run the periodic offline scan every 5, 10, 15, or 30 minutes (default 15)
 - **Automatic recovery handling** – Tracks when devices come back online and removes from tracking list
+- **Self-healing tracking list** – The periodic scan clears devices that recovered while their online event was missed (e.g. an HA restart), so future alerts keep working; recovery notification/actions optional
 - **Variables available** – Pass device info to custom actions (see below)
 - **Device exclusion list** – Exclude specific entities from monitoring
 - **Concurrent event support** – Parallel `mqtt_connection_state_changed` events processed correctly (`mode: queued`)
@@ -93,8 +96,17 @@ The blueprint requires one Input Text helper with a maximum length of **255 char
 ## Offline Duration & Battery Devices
 
 **Offline Duration** sets how long any monitored device must stay offline before
-it is reported. It is an hours/minutes picker; detection still runs on a
-15-minute polling cycle, so values below 15 minutes are treated as 15 minutes.
+it is reported. It is an hours/minutes picker; detection runs on the periodic
+polling cycle set by **Check Interval** (5 / 10 / 15 / 30 minutes, default 15),
+so a value shorter than one interval is treated as one interval and actual
+detection may lag the threshold by up to one interval.
+
+On every periodic run the blueprint also **self-heals the tracking helper**: a
+device still listed as offline but currently reporting online (usually because
+its recovery event was missed during a Home Assistant restart) is removed from
+the helper, so future offline alerts for it work again. **Notify on Self-Healed
+Recovery** (on by default) decides whether that also sends the normal online
+notification and runs *Online Actions*, or heals the list silently.
 
 **Battery Device Offline Duration** is an optional, usually longer threshold for
 battery-powered Zigbee devices, which check in far less often than mains-powered
