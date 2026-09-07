@@ -1,7 +1,7 @@
 # MQTT Connection State Monitor for Home Assistant
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.2.2-blue"/>
+  <img src="https://img.shields.io/badge/version-0.3.0-blue"/>
 </p>
 
 **Home Assistant automation to monitor MQTT Connection State binary sensors and notify when devices remain offline longer than the configured duration.**
@@ -10,7 +10,7 @@
 
 ## Stable Release
 
-v0.2.2 is a stable release. Please report bugs and suggestions via [Issues](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) or [Pull Requests](https://github.com/dabo53ck/mqtt-connection-state-monitor/pulls).
+v0.3.0 is a stable release. Please report bugs and suggestions via [Issues](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) or [Pull Requests](https://github.com/dabo53ck/mqtt-connection-state-monitor/pulls).
 
 ---
 
@@ -60,6 +60,7 @@ The blueprint requires one Input Text helper with a maximum length of **255 char
    - Set **Offline Duration** (default: 3 h 0 min)
    - Optionally adjust **Check Interval** – how often the periodic scan runs (5 / 10 / 15 / 30 min, default 15)
    - Optionally set **Battery Device Offline Duration** – a separate, longer threshold auto-applied to battery-powered Zigbee devices (0 = disabled)
+   - Optionally enable **Mass Outage Detection** – one aggregated alert (plus optional remediation) instead of a per-device flood when a coordinator/bridge fails (disabled by default)
    - Optionally configure iOS/Android notification settings
    - Optionally configure exclusion list and custom actions
 4. Click **"Import"** and **"Create Automation"**
@@ -72,7 +73,9 @@ The blueprint requires one Input Text helper with a maximum length of **255 char
 
 - **Delayed offline detection** – Notifications only trigger after device stays offline longer than configured duration
 - **Battery-device offline threshold** – Optional separate, longer threshold auto-applied to battery-powered Zigbee devices (auto-detected via a battery entity on the same device); disabled by default
+- **Mass outage detection** – Optional. When many devices drop together (a coordinator / bridge / hub failure), send one aggregated alert instead of a per-device flood, suppress per-device handling until recovery, optionally run a one-time remediation action, and report recovery in two phases so slow battery devices don't cause a second flood; disabled by default
 - **Duplicate notification protection** – Each device notified only once per offline event
+- **Overflow & clamp warnings** – Persistent notification when the 255-char tracking helper is full, or when an offline threshold is shorter than the Check Interval and is silently treated as one interval
 - **Multiple device notifications** – Send to multiple phones/tablets simultaneously
 - **Platform-aware notifications** – Separate iOS and Android options
 - **Notification timestamp** – Optional time-of-day (with seconds) on each alert; iOS subtitle / Android subject; 12H or 24H (24H default)
@@ -127,6 +130,74 @@ Only entities that are actually monitored by this automation (a
 `*_connection_state` connectivity sensor, not excluded) are ever checked, so
 unrelated battery devices — phones, a UPS, vacuums, an inverter — are never
 affected.
+
+---
+
+## Mass Outage Detection
+
+*Disabled by default.* When a Zigbee coordinator, MQTT bridge or hub fails, every
+device behind it reports offline in the same cycle. Without this feature each one
+is treated as an independent outage — a notification flood, and with more than
+~10–15 devices the 255-character tracking helper overflows and duplicate alerts
+repeat every cycle.
+
+With **Enable Mass Outage Detection** on, the periodic check declares a *mass
+outage* when, in a single scan:
+
+- at least **Trigger Count** monitored devices are offline, **or**
+- at least **Trigger Fraction (%)** of all monitored devices are offline, **or**
+- any **Bridge / Coordinator Entity** you listed is `off` / `unavailable`.
+
+At least one of the three must be set, otherwise the feature stays inert. The
+count / fraction triggers are confirmed over **two consecutive checks**; a bridge
+entity triggers immediately.
+
+While a mass outage is active:
+
+- **one** aggregated notification is sent (`Mass Outage Notification Title` /
+  `Message`), repeated every **Reminder Interval** hours while the infrastructure
+  is still down (`0` = no reminders);
+- all per-device offline **and** online handling is suppressed — Companion App
+  pushes *and* Custom Actions — and the event-triggered "back online" branch is
+  disabled, so a recovery event storm can't flood you;
+- **Mass Outage Actions** run **once**, **Action Delay** after detection and only
+  if the outage is still ongoing — e.g. `button.press` on the coordinator's
+  restart button;
+- the tracking helper holds only a small fixed-size marker, so the 255-character
+  limit is not a factor no matter how many devices are down.
+
+Recovery is handled in two phases:
+
+1. **Infrastructure recovered** — declared when every listed bridge entity is
+   back `on`, or ≥ 90 % of *mains-powered* monitored devices have returned
+   (battery devices are ignored for this decision). One `Mass Recovery
+   Notification` is sent and reminders stop.
+2. **Not-recovered follow-ups** — sent separately: mains devices still offline
+   after twice the **Check Interval**, and battery devices still offline after
+   **Battery Recovery Grace** (default `1 h`), each in one consolidated
+   `Not-Recovered Follow-up` message.
+
+**Maximum Outage Duration** (default `24 h`) force-closes the episode; anything
+still offline afterwards falls back to normal per-device tracking.
+
+Context variables for the mass templates and **Mass Outage Actions**:
+`offline_count`, `monitored_count`, `offline_fraction`, `affected_devices`,
+`outage_started`, `outage_duration`, `trigger_reason` (`count` / `fraction` /
+`bridge`), `bridge_entity`, `is_reminder`, `recovered_count`,
+`still_offline_count`, `still_offline_devices`, `followup_kind` (`mains` /
+`battery`), `notification_time`.
+
+### Persistent-notification warnings
+
+Two optional toggles in *Monitoring Options* (both on by default) raise a
+self-clearing persistent notification:
+
+- **Warn When Tracking Helper Is Full** — the 255-character helper limit was hit;
+  the list is truncated and duplicate offline alerts become likely for the
+  overflow until it is cleared, split, or Mass Outage Detection is enabled.
+- **Warn When Threshold Is Clamped** — **Offline Duration** or **Battery Device
+  Offline Duration** is shorter than the **Check Interval** and is therefore
+  silently treated as one interval.
 
 ---
 
@@ -219,9 +290,9 @@ Use **Offline Actions** and **Online Actions** for integrations beyond Companion
 
 ## Known Limitations
 
-The blueprint uses an Input Text helper to track devices that have already been reported as offline. Because Input Text helpers have a maximum length of **255 characters**, approximately **10-15 devices** can be tracked simultaneously, depending on the length of device names.
+The blueprint uses an Input Text helper to track devices that have already been reported as offline. Because Input Text helpers have a maximum length of **255 characters**, approximately **10-15 devices** can be tracked simultaneously, depending on the length of device names. Beyond that the helper is truncated and a persistent notification is raised (**Warn When Tracking Helper Is Full**).
 
-For environments with a large number of devices going offline simultaneously, consider splitting into multiple blueprints with separate helpers.
+Enabling **Mass Outage Detection** removes this ceiling for coordinator/bridge-wide outages — those are tracked as a single marker rather than a per-device list. For very large deployments of *independent* devices, consider splitting into multiple blueprints with separate helpers.
 
 ---
 

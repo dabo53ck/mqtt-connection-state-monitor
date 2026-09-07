@@ -6,7 +6,7 @@ blueprint:
   description: |-
     # MQTT Connection State Monitor
 
-    ![Version](https://img.shields.io/badge/version-0.2.2-blue) &nbsp;&nbsp;&nbsp; [![GitHub](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/dabo53ck/mqtt-connection-state-monitor) &nbsp;&nbsp;&nbsp; [![Issues](https://img.shields.io/badge/Issues-red)](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) &nbsp;&nbsp;&nbsp; [![Community](https://img.shields.io/badge/Community-Thread-blue)](https://community.home-assistant.io/t/release-mqtt-connection-state-monitor-for-home-assistant/)
+    ![Version](https://img.shields.io/badge/version-0.3.0-blue) &nbsp;&nbsp;&nbsp; [![GitHub](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/dabo53ck/mqtt-connection-state-monitor) &nbsp;&nbsp;&nbsp; [![Issues](https://img.shields.io/badge/Issues-red)](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) &nbsp;&nbsp;&nbsp; [![Community](https://img.shields.io/badge/Community-Thread-blue)](https://community.home-assistant.io/t/release-mqtt-connection-state-monitor-for-home-assistant/)
 
     Monitor your MQTT-connected devices and receive timely notifications when they go offline. Unlike basic connectivity checks, this blueprint implements **delayed detection** to avoid false alarms from brief connection drops, while maintaining robust duplicate protection so you're not spammed with repeated alerts.
 
@@ -18,7 +18,10 @@ blueprint:
 
     • **Configurable offline threshold** – Choose how long a device must stay offline before triggering (default: 3 hours)
     • **Battery-device offline threshold** – Optional separate, longer threshold auto-applied to battery-powered Zigbee devices (they check in less often); disabled by default
+    • **Mass outage detection** – When many devices drop together (a Zigbee coordinator / MQTT bridge / hub failure), send one aggregated alert instead of a per-device flood, suppress per-device handling until recovery, run an optional one-time remediation action, and report recovery in two phases so slow battery devices don't cause a second flood; disabled by default
     • **Duplicate notification protection** – Each device notified only once per offline event
+    • **Tracking-helper overflow warning** – Persistent notification when the 255-character helper limit is hit and devices can no longer be tracked
+    • **Clamped-threshold warning** – Persistent notification when an offline threshold is shorter than the Check Interval and is therefore silently treated as one interval
     • **Multiple device notifications** – Send alerts to multiple phones/tablets simultaneously
     • **Platform-aware notifications** – Separate iOS and Android notification options
     • **Notification timestamp** – Optional time-of-day with seconds on every alert (iOS subtitle / Android subject); 12H or 24H
@@ -54,9 +57,17 @@ blueprint:
 
     <details><summary>Known Limitation</summary>
 
-    Due to the 255-character limit of Input Text helpers, approximately **10-15 devices** can be tracked simultaneously depending on the length of device names. For larger deployments, consider splitting into multiple blueprints with separate helpers.
+    Due to the 255-character limit of Input Text helpers, approximately **10-15 devices**
+    can be tracked simultaneously depending on the length of device names. Beyond that
+    the helper is truncated and a persistent notification is raised (see *Warn When
+    Tracking Helper Is Full*). Enabling **Mass Outage Detection** removes this ceiling
+    for coordinator/bridge-wide outages, because those are then tracked as a single
+    marker instead of a per-device list. For very large deployments of independent
+    devices, consider splitting into multiple blueprints with separate helpers.
 
-    Additionally, offline detection runs on a periodic polling cycle (**Check Interval**, default 15 minutes), so actual detection may occur up to one interval after the configured threshold is reached.
+    Additionally, offline detection runs on a periodic polling cycle (**Check Interval**,
+    default 15 minutes), so actual detection may occur up to one interval after the
+    configured threshold is reached.
     </details>
   domain: automation
   source_url: https://github.com/dabo53ck/mqtt-connection-state-monitor
@@ -305,6 +316,183 @@ blueprint:
           selector:
             action: {}
 
+    mass_outage_options:
+      name: Mass Outage Detection
+      icon: mdi:lan-disconnect
+      collapsed: true
+      input:
+        mass_outage_detection:
+          name: Enable Mass Outage Detection
+          description: >-
+            When many monitored devices go offline together — a Zigbee
+            coordinator, MQTT bridge or hub failure rather than genuine
+            per-device outages — send one aggregated alert instead of a
+            per-device flood, suppress all per-device offline/online handling
+            until recovery, and optionally run a one-time remediation action.
+            Requires at least one of Trigger Count, Trigger Fraction or
+            Bridge / Coordinator Entities to be set, otherwise it stays inert.
+          default: false
+          selector:
+            boolean: {}
+        mass_outage_count:
+          name: Trigger Count
+          description: >-
+            Declare a mass outage when at least this many monitored devices are
+            offline in a single check. 0 disables this criterion.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1000
+              mode: box
+        mass_outage_fraction:
+          name: Trigger Fraction (%)
+          description: >-
+            Declare a mass outage when at least this percentage of all monitored
+            devices is offline in a single check. Combined with Trigger Count
+            using OR. 0 disables this criterion.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 100
+              mode: slider
+        bridge_entities:
+          name: Bridge / Coordinator Entities
+          description: >-
+            Optional. Connectivity entities for your Zigbee bridge / MQTT broker
+            / hub. If any of these is 'off' or 'unavailable', a mass outage is
+            declared immediately (no two-scan debounce). Also used as the primary
+            "infrastructure recovered" signal — when all of them are back 'on'.
+          default: []
+          selector:
+            entity:
+              multiple: true
+        mass_outage_reminder_hours:
+          name: Reminder Interval (hours)
+          description: >-
+            While the infrastructure is still down, repeat the mass outage alert
+            roughly every N hours. 0 disables reminders. Reminders stop once the
+            infrastructure recovers.
+          default: 2
+          selector:
+            number:
+              min: 0
+              max: 48
+              mode: box
+        mass_outage_actions:
+          name: Mass Outage Actions
+          description: >-
+            Optional actions run ONCE per mass outage, after Action Delay, and
+            only if the outage is still ongoing. Typical use: press the
+            coordinator's restart button. Available variables: offline_count,
+            monitored_count, offline_fraction, affected_devices, outage_started,
+            trigger_reason, bridge_entity.
+          default: []
+          selector:
+            action: {}
+        mass_outage_action_delay:
+          name: Action Delay
+          description: >-
+            Wait this long after a mass outage is detected before running Mass
+            Outage Actions; the action runs only if the outage is still ongoing.
+          default:
+            hours: 0
+            minutes: 10
+          selector:
+            duration:
+              enable_second: false
+        battery_recovery_grace:
+          name: Battery Recovery Grace
+          description: >-
+            After the infrastructure recovers, how long battery-powered devices
+            are allowed to take to re-announce before being reported as "not
+            recovered". Mains devices use twice the Check Interval.
+          default:
+            hours: 1
+            minutes: 0
+          selector:
+            duration:
+              enable_second: false
+        mass_outage_max_hours:
+          name: Maximum Outage Duration (hours)
+          description: >-
+            Safety cap. Force-close the mass outage episode after this many
+            hours; any devices still offline then fall back to normal per-device
+            tracking.
+          default: 24
+          selector:
+            number:
+              min: 1
+              max: 168
+              mode: box
+        mass_outage_title:
+          name: Mass Outage Notification Title
+          description: >-
+            Title for the aggregated mass outage alert and its reminders.
+            Context variables: offline_count, monitored_count, offline_fraction,
+            affected_devices, outage_started, outage_duration, trigger_reason,
+            bridge_entity, is_reminder, notification_time.
+          default: "🚨 Mass outage: {{ offline_count }} devices offline"
+          selector:
+            text: {}
+        mass_outage_message:
+          name: Mass Outage Notification Message
+          description: >-
+            Body for the aggregated mass outage alert / reminder. Same context
+            variables as the title.
+          default: >-
+            {{ offline_count }} of {{ monitored_count }} monitored devices went
+            offline together{% if is_reminder %}, {{ (outage_duration / 3600) |
+            round(1) }} h ago, and are still offline{% endif %}. Likely a
+            coordinator or bridge failure (trigger: {{ trigger_reason }}).
+          selector:
+            text:
+              multiline: true
+        mass_recovery_title:
+          name: Mass Recovery Notification Title
+          description: >-
+            Title for the "infrastructure recovered" alert. Context variables:
+            recovered_count, monitored_count, still_offline_count,
+            outage_duration, outage_started, notification_time.
+          default: "✅ Mass outage cleared"
+          selector:
+            text: {}
+        mass_recovery_message:
+          name: Mass Recovery Notification Message
+          description: >-
+            Body for the "infrastructure recovered" alert. Same context
+            variables as the title.
+          default: >-
+            {{ recovered_count }} of {{ monitored_count }} devices are back
+            online.{% if still_offline_count %} {{ still_offline_count }} still
+            pending — battery devices may take a while.{% endif %}
+          selector:
+            text:
+              multiline: true
+        mass_followup_title:
+          name: Not-Recovered Follow-up Title
+          description: >-
+            Title for the follow-up that lists devices which did NOT come back
+            after a mass outage. Sent separately for mains and battery devices.
+            Context variables: followup_kind ('mains' or 'battery'),
+            still_offline_devices, still_offline_count, outage_started,
+            notification_time.
+          default: "⚠️ {{ still_offline_count }} {{ followup_kind }} device(s) did not recover"
+          selector:
+            text: {}
+        mass_followup_message:
+          name: Not-Recovered Follow-up Message
+          description: >-
+            Body for the not-recovered follow-up. Same context variables as the
+            title.
+          default: >-
+            After the mass outage these {{ followup_kind }} devices are still
+            offline: {{ still_offline_devices | join(', ') }}.
+          selector:
+            text:
+              multiline: true
+
     monitoring_options:
       name: Monitoring Options
       icon: mdi:cog-transfer-outline
@@ -373,6 +561,25 @@ blueprint:
             again. With this enabled, that self-healed recovery also sends the
             normal online notification and runs the Online Actions, exactly like a
             live recovery. Disable to heal the tracking list silently.
+          default: true
+          selector:
+            boolean: {}
+        warn_on_clamped_threshold:
+          name: Warn When Threshold Is Clamped
+          description: >-
+            Raise a persistent notification when Offline Duration or Battery
+            Device Offline Duration is shorter than the Check Interval and is
+            therefore silently treated as one interval. Dismisses itself when the
+            values are no longer clamped.
+          default: true
+          selector:
+            boolean: {}
+        warn_on_helper_full:
+          name: Warn When Tracking Helper Is Full
+          description: >-
+            Raise a persistent notification when the tracking helper hits the
+            255-character limit and devices can no longer be tracked (duplicate
+            offline alerts become likely). Independent of Mass Outage Detection.
           default: true
           selector:
             boolean: {}
@@ -448,11 +655,31 @@ variables:
   online_high_priority: !input online_high_priority
   online_sticky: !input online_sticky
   android_notification_channel: !input android_notification_channel
+  warn_on_clamped_threshold: !input warn_on_clamped_threshold
+  warn_on_helper_full: !input warn_on_helper_full
+  mass_outage_detection: !input mass_outage_detection
+  mass_outage_count: !input mass_outage_count
+  mass_outage_fraction: !input mass_outage_fraction
+  bridge_entities: !input bridge_entities
+  mass_outage_reminder_hours: !input mass_outage_reminder_hours
+  mass_outage_actions: !input mass_outage_actions
+  mass_outage_action_delay: !input mass_outage_action_delay
+  battery_recovery_grace: !input battery_recovery_grace
+  mass_outage_max_hours: !input mass_outage_max_hours
   offline_duration_seconds: "{{ (offline_duration.hours | int(0)) * 3600 + (offline_duration.minutes | int(0)) * 60 }}"
   battery_offline_duration_seconds: "{{ (battery_offline_duration.hours | int(0)) * 3600 + (battery_offline_duration.minutes | int(0)) * 60 }}"
   check_interval_seconds: "{{ (check_interval_minutes | int(15)) * 60 }}"
   threshold_seconds: "{{ [offline_duration_seconds | int(0), check_interval_seconds | int(900)] | max }}"
   battery_threshold_seconds: "{{ 0 if (battery_offline_duration_seconds | int(0)) == 0 else [battery_offline_duration_seconds | int(0), check_interval_seconds | int(900)] | max }}"
+  mass_outage_action_delay_seconds: "{{ (mass_outage_action_delay.hours | int(0)) * 3600 + (mass_outage_action_delay.minutes | int(0)) * 60 }}"
+  battery_recovery_grace_seconds: "{{ (battery_recovery_grace.hours | int(0)) * 3600 + (battery_recovery_grace.minutes | int(0)) * 60 }}"
+  mass_outage_enabled: >-
+    {{ (mass_outage_detection | default(false) | bool(false))
+       and (((mass_outage_count | int(0)) > 0)
+            or ((mass_outage_fraction | int(0)) > 0)
+            or ((bridge_entities | default([]) | length) > 0)) }}
+  threshold_clamped: "{{ (offline_duration_seconds | int(0)) > 0 and (offline_duration_seconds | int(0)) < (check_interval_seconds | int(900)) }}"
+  battery_threshold_clamped: "{{ (battery_offline_duration_seconds | int(0)) > 0 and (battery_offline_duration_seconds | int(0)) < (check_interval_seconds | int(900)) }}"
   timestamp_format: "{{ '%I:%M:%S %p' if notification_time_format == '12h' else '%H:%M:%S' }}"
   offline_message_data: >-
     {% set msg = namespace(data={}) %}
@@ -502,6 +729,9 @@ action:
       # Entire sequence (helper update, notification, actions) is
       # gated behind "device_name in current_notified" — if the
       # device was never tracked as offline, nothing fires.
+      # While a mass outage episode is active the event branch is a
+      # no-op: recovery is handled by the periodic scan so recovery
+      # event storms do not produce a per-device push flood.
       # ============================================================
       - conditions:
           - condition: template
@@ -514,16 +744,25 @@ action:
                 {{ trigger.event.data.entity_id
                    | replace('binary_sensor.', '')
                    | replace('_connection_state', '') }}
-              current_notified: >-
+              helper_raw_list: >-
                 {% set raw = states(notified_helper) %}
                 {% if raw in ['', 'unknown', 'unavailable'] %}
-                []
+                {{ [] }}
                 {% else %}
                 {{ raw.split('|') }}
                 {% endif %}
+          - variables:
+              mass_raw: >-
+                {{ helper_raw_list[0]
+                   if (helper_raw_list | length > 0 and helper_raw_list[0].startswith('__mass'))
+                   else '' }}
+          - variables:
+              current_notified: >-
+                {{ helper_raw_list[1:] if (mass_raw | length > 0) else helper_raw_list }}
           - if:
               - condition: template
-                value_template: "{{ device_name in current_notified }}"
+                value_template: >-
+                  {{ (mass_raw | length == 0) and (device_name in current_notified) }}
             then:
               # 1. Remove device from helper
               - variables:
@@ -576,28 +815,72 @@ action:
           - condition: template
             value_template: "{{ trigger.platform != 'event' }}"
         sequence:
+          # ---- Parse the tracking helper: an optional mass-outage
+          # ---- marker ("__mass__:..." or "__mass_pending__:...") in the
+          # ---- first field, then the pipe-delimited device names.
           - variables:
-              current_notified: >-
+              helper_raw_list: >-
                 {% set raw = states(notified_helper) %}
                 {% if raw in ['', 'unknown', 'unavailable'] %}
-                []
+                {{ [] }}
                 {% else %}
                 {{ raw.split('|') }}
                 {% endif %}
-              # Device IDs and registry identifier strings ("<domain>:<id>",
-              # e.g. the Zigbee IEEE address) of every device that exposes a
-              # device_class: battery entity. Used ONLY as a membership set:
-              # a monitored connectivity device counts as battery-powered when
-              # one of ITS own device IDs / identifiers is in here. Device
-              # names are never used - they are not unique in HA. This set is
-              # a superset of the whole instance; it is only ever consulted for
-              # entities that already passed the monitored-connectivity filter
-              # in due_devices below, so unrelated battery devices (phones,
-              # UPS, vacuums, ...) can never be acted on. Empty (scan skipped)
-              # when the battery threshold is disabled.
+          - variables:
+              mass_raw: >-
+                {{ helper_raw_list[0]
+                   if (helper_raw_list | length > 0 and helper_raw_list[0].startswith('__mass'))
+                   else '' }}
+          - variables:
+              current_notified: >-
+                {{ helper_raw_list[1:] if (mass_raw | length > 0) else helper_raw_list }}
+              mass_state: >-
+                {% set p = mass_raw.split(':') %}
+                {% if p[0] == '__mass__' and (p | length) >= 6 %}
+                {{ {'phase': 'active', 'detected': p[1] | int(0), 'infra': p[2] | int(0),
+                    'action_fired': (p[3] == '1'), 'mains_fu': (p[4] == '1'), 'batt_fu': (p[5] == '1')} }}
+                {% elif p[0] == '__mass_pending__' and (p | length) >= 2 %}
+                {{ {'phase': 'pending', 'first_seen': p[1] | int(0)} }}
+                {% else %}
+                {{ {'phase': 'none'} }}
+                {% endif %}
+          # ---- Optional warning: an offline threshold shorter than the
+          # ---- Check Interval is silently clamped up to one interval.
+          - if:
+              - condition: template
+                value_template: "{{ warn_on_clamped_threshold | bool(true) }}"
+            then:
+              - if:
+                  - condition: template
+                    value_template: "{{ threshold_clamped or battery_threshold_clamped }}"
+                then:
+                  - action: persistent_notification.create
+                    data:
+                      notification_id: mqtt_csm_threshold_clamped
+                      title: MQTT Connection State Monitor
+                      message: >-
+                        {% set ci = (check_interval_seconds | int(900)) // 60 -%}
+                        {%- if threshold_clamped %}Offline Duration
+                        ({{ (offline_duration_seconds | int(0)) // 60 }} min) is shorter than the
+                        Check Interval ({{ ci }} min) and is treated as {{ ci }} min.{% endif -%}
+                        {%- if battery_threshold_clamped %} Battery Device Offline Duration
+                        ({{ (battery_offline_duration_seconds | int(0)) // 60 }} min) is likewise
+                        treated as {{ ci }} min — set it above the Check Interval for the separate
+                        battery threshold to have any effect.{% endif %}
+                else:
+                  - action: persistent_notification.dismiss
+                    data:
+                      notification_id: mqtt_csm_threshold_clamped
+          # ---- Device IDs and registry identifier strings of every device
+          # ---- that exposes a device_class: battery entity. Used ONLY as a
+          # ---- membership set to classify a monitored connectivity device
+          # ---- as battery-powered. Needed whenever the battery threshold OR
+          # ---- mass outage detection is active (the latter splits mains vs
+          # ---- battery devices for recovery).
+          - variables:
               battery_device_idents: >-
-                {% if battery_threshold_seconds | int(0) == 0 %}
-                []
+                {% if (battery_threshold_seconds | int(0)) == 0 and not (mass_outage_enabled | bool(false)) %}
+                {{ [] }}
                 {% else %}
                 {% set bns = namespace(ids=[]) %}
                 {% for s in (states.sensor
@@ -618,23 +901,23 @@ action:
                 {% endfor %}
                 {{ bns.ids | unique | list }}
                 {% endif %}
-          # Single-pass computation of all "due" devices, pre-filtered
-          # to state == 'off' before any further processing. Battery-powered
-          # devices (this device's own id/identifier is in battery_device_idents)
-          # use the battery threshold when it is enabled.
+          # ---- Single scan of every monitored connectivity sensor. All
+          # ---- downstream logic (due devices, recovered devices, mass
+          # ---- outage detection) derives from this list.
           - variables:
-              due_devices: >-
+              monitored: >-
                 {% set ns = namespace(items=[]) %}
+                {% set nowts = as_timestamp(now()) | int %}
                 {% for st in states.binary_sensor
                      | selectattr('entity_id', 'search', 'connection_state$')
                      | rejectattr('entity_id', 'in', exclude_entities)
-                     | selectattr('state', 'eq', 'off')
                      | list %}
                   {% set dname = st.entity_id
                        | replace('binary_sensor.', '')
                        | replace('_connection_state', '') %}
                   {% set lc = st.last_changed %}
-                  {% set osec = ((as_timestamp(now()) - as_timestamp(lc)) | int) if lc else 0 %}
+                  {% set lcts = (as_timestamp(lc) | int) if lc else 0 %}
+                  {% set osec = (nowts - lcts) if lcts else 0 %}
                   {% set cd = device_id(st.entity_id) %}
                   {% set ck = namespace(ids=[]) %}
                   {% if cd %}
@@ -644,38 +927,278 @@ action:
                     {% endfor %}
                   {% endif %}
                   {% set is_batt = ck.ids | select('in', battery_device_idents) | list | length > 0 %}
-                  {% set eff_threshold = battery_threshold_seconds | int(0)
-                       if (is_batt and (battery_threshold_seconds | int(0)) > 0)
-                       else threshold_seconds | int(0) %}
-                  {% if osec >= eff_threshold and dname not in current_notified %}
-                    {% set fname = state_attr(st.entity_id, 'friendly_name') | default(dname | replace('_', ' ') | title, true) %}
-                    {% set ns.items = ns.items + [{'entity_id': st.entity_id, 'device_name': dname, 'friendly_name': fname, 'offline_seconds': osec, 'threshold_seconds': eff_threshold, 'battery_powered': is_batt}] %}
-                  {% endif %}
+                  {% set fname = state_attr(st.entity_id, 'friendly_name')
+                       | default(dname | replace('_', ' ') | title, true) %}
+                  {% set ns.items = ns.items + [{
+                       'entity_id': st.entity_id, 'device_name': dname, 'friendly_name': fname,
+                       'state': st.state, 'offline_seconds': osec, 'lc_ts': lcts, 'is_batt': is_batt}] %}
                 {% endfor %}
                 {{ ns.items }}
-          # Devices still listed in the tracking helper but now reporting
-          # online — their event-triggered recovery was missed (HA restart,
-          # event-bus hiccup, integration didn't fire). Same monitored-
-          # connectivity scan as due_devices, filtered to state == 'on'.
-          # These are always cleared from the helper by the write below;
-          # self_heal_notify controls whether they also notify / run actions.
+          # ---- Mass-outage state machine. Produces a single dict describing
+          # ---- what (if anything) should happen this run and the tracking-
+          # ---- helper marker to write. A no-op when mass detection is off.
+          - variables:
+              mass: >-
+                {% set nowts = as_timestamp(now()) | int %}
+                {% set ci = check_interval_seconds | int(900) %}
+                {% set moff = monitored | selectattr('state', 'eq', 'off') | list %}
+                {% set mon_ct = monitored | length %}
+                {% set off_ct = moff | length %}
+                {% set mains = monitored | rejectattr('is_batt') | list %}
+                {% set mains_ct = mains | length %}
+                {% set mains_on = mains | selectattr('state', 'eq', 'on') | list | length %}
+                {% set frac = (100.0 * off_ct / mon_ct) if mon_ct > 0 else 0 %}
+                {% set be = bridge_entities | default([]) %}
+                {% set bb = namespace(bad=[], all_on=true) %}
+                {% for e in be %}
+                  {% if states(e) in ['off', 'unavailable'] %}{% set bb.bad = bb.bad + [e] %}{% endif %}
+                  {% if states(e) != 'on' %}{% set bb.all_on = false %}{% endif %}
+                {% endfor %}
+                {% set bridge_tripped = (be | length > 0) and (bb.bad | length > 0) %}
+                {% set bridge_all_on = (be | length > 0) and bb.all_on %}
+                {% set cnt_hit = (mass_outage_count | int(0)) > 0 and off_ct >= (mass_outage_count | int(0)) %}
+                {% set frac_hit = (mass_outage_fraction | int(0)) > 0 and frac >= (mass_outage_fraction | int(0)) %}
+                {% set cond = (mass_outage_enabled | bool(false)) and (cnt_hit or frac_hit or bridge_tripped) %}
+                {% set reason = 'bridge' if bridge_tripped else ('count' if cnt_hit else ('fraction' if frac_hit else 'none')) %}
+                {% set sp = mass_state.phase %}
+                {% set ns = namespace(action='none', sentinel=mass_raw, notify='none',
+                                      run_remediation=false, suppress_all=false, suppress_members=false,
+                                      detected=0, infra=0, still=[], still_kind='') %}
+                {% if not (mass_outage_enabled | bool(false)) %}
+                {% elif sp == 'none' %}
+                  {% if cond and bridge_tripped %}
+                    {% set ns.action = 'promote' %}
+                    {% set ns.sentinel = '__mass__:' ~ nowts ~ ':0:0:0:0' %}
+                    {% set ns.notify = 'outage' %}
+                    {% set ns.detected = nowts %}
+                    {% set ns.suppress_all = true %}
+                  {% elif cond %}
+                    {% set ns.action = 'start_pending' %}
+                    {% set ns.sentinel = '__mass_pending__:' ~ nowts %}
+                    {% set ns.suppress_all = true %}
+                  {% endif %}
+                {% elif sp == 'pending' %}
+                  {% if cond and (bridge_tripped or (nowts - mass_state.first_seen) >= ci) %}
+                    {% set ns.action = 'promote' %}
+                    {% set ns.sentinel = '__mass__:' ~ nowts ~ ':0:0:0:0' %}
+                    {% set ns.notify = 'outage' %}
+                    {% set ns.detected = nowts %}
+                    {% set ns.suppress_all = true %}
+                  {% elif cond %}
+                    {% set ns.suppress_all = true %}
+                  {% else %}
+                    {% set ns.action = 'clear_pending' %}
+                    {% set ns.sentinel = '' %}
+                  {% endif %}
+                {% elif sp == 'active' %}
+                  {% set d = mass_state.detected %}
+                  {% set inf = mass_state.infra %}
+                  {% set af = 1 if mass_state.action_fired else 0 %}
+                  {% set mfu = 1 if mass_state.mains_fu else 0 %}
+                  {% set bfu = 1 if mass_state.batt_fu else 0 %}
+                  {% set ns.detected = d %}
+                  {% if inf == 0 %}
+                    {% set ns.suppress_all = true %}
+                    {% set mains_ratio_ok = mains_ct > 0 and (mains_on / mains_ct) >= 0.9 %}
+                    {% if bridge_all_on or mains_ratio_ok %}
+                      {% set ns.action = 'infra_recovered' %}
+                      {% set ns.infra = nowts %}
+                      {% set ns.sentinel = '__mass__:' ~ d ~ ':' ~ nowts ~ ':' ~ af ~ ':0:0' %}
+                      {% set ns.notify = 'recovery' %}
+                    {% elif af == 0 and (mass_outage_actions | default([]) | length) > 0
+                            and (nowts - d) >= (mass_outage_action_delay_seconds | int(0)) and cond %}
+                      {% set ns.action = 'run_remediation' %}
+                      {% set ns.run_remediation = true %}
+                      {% set ns.sentinel = '__mass__:' ~ d ~ ':0:1:0:0' %}
+                    {% elif (mass_outage_reminder_hours | int(0)) > 0
+                            and (nowts - d) >= (mass_outage_reminder_hours | int(0)) * 3600
+                            and ((nowts - d) % ((mass_outage_reminder_hours | int(0)) * 3600)) < ci %}
+                      {% set ns.action = 'reminder' %}
+                      {% set ns.notify = 'reminder' %}
+                    {% endif %}
+                  {% else %}
+                    {% set ns.infra = inf %}
+                    {% set ns.suppress_members = true %}
+                    {% set still = monitored | selectattr('state', 'eq', 'off')
+                         | selectattr('lc_ts', 'lt', inf) | list %}
+                    {% set still_mains = still | rejectattr('is_batt') | list %}
+                    {% set still_batt = still | selectattr('is_batt') | list %}
+                    {% if mfu == 0 and (nowts - inf) >= (2 * ci) %}
+                      {% set ns.action = 'mains_followup' %}
+                      {% set ns.sentinel = '__mass__:' ~ d ~ ':' ~ inf ~ ':' ~ af ~ ':1:' ~ bfu %}
+                      {% if still_mains | length > 0 %}
+                        {% set ns.notify = 'followup' %}
+                        {% set ns.still = still_mains | map(attribute='friendly_name') | list %}
+                        {% set ns.still_kind = 'mains' %}
+                      {% endif %}
+                    {% elif bfu == 0 and (nowts - inf) >= (battery_recovery_grace_seconds | int(3600)) %}
+                      {% set ns.action = 'battery_followup' %}
+                      {% set ns.sentinel = '__mass__:' ~ d ~ ':' ~ inf ~ ':' ~ af ~ ':' ~ mfu ~ ':1' %}
+                      {% if still_batt | length > 0 %}
+                        {% set ns.notify = 'followup' %}
+                        {% set ns.still = still_batt | map(attribute='friendly_name') | list %}
+                        {% set ns.still_kind = 'battery' %}
+                      {% endif %}
+                    {% elif (nowts - d) >= (mass_outage_max_hours | int(24)) * 3600
+                            or (mfu == 1 and bfu == 1 and still | length == 0) %}
+                      {% set ns.action = 'close' %}
+                      {% set ns.sentinel = '' %}
+                    {% endif %}
+                  {% endif %}
+                {% endif %}
+                {{ {
+                  'action': ns.action, 'sentinel': ns.sentinel, 'notify': ns.notify,
+                  'run_remediation': ns.run_remediation,
+                  'suppress_all': ns.suppress_all, 'suppress_members': ns.suppress_members,
+                  'detected': ns.detected, 'infra': ns.infra,
+                  'still_devices': ns.still, 'still_kind': ns.still_kind,
+                  'offline_count': off_ct, 'monitored_count': mon_ct,
+                  'offline_fraction': (frac | round(1)),
+                  'trigger_reason': reason,
+                  'bridge_entity': (bb.bad[0] if bb.bad | length > 0 else ''),
+                  'affected': (moff | map(attribute='friendly_name') | list)
+                } }}
+          # ---- "Due" devices: offline past their effective threshold and not
+          # ---- already notified. Empty while a mass outage suppresses all
+          # ---- per-device handling; episode members are excluded during the
+          # ---- trailing (post-recovery) phase.
+          - variables:
+              due_devices: >-
+                {% set ns = namespace(items=[]) %}
+                {% if not mass.suppress_all %}
+                {% for m in monitored | selectattr('state', 'eq', 'off') | list %}
+                  {% set eff = battery_threshold_seconds | int(0)
+                       if (m.is_batt and (battery_threshold_seconds | int(0)) > 0)
+                       else threshold_seconds | int(0) %}
+                  {% set is_member = mass.suppress_members and mass.infra > 0 and m.lc_ts < mass.infra %}
+                  {% if (m.offline_seconds >= eff) and (m.device_name not in current_notified) and (not is_member) %}
+                    {% set ns.items = ns.items + [{'entity_id': m.entity_id, 'device_name': m.device_name,
+                         'friendly_name': m.friendly_name, 'offline_seconds': m.offline_seconds,
+                         'threshold_seconds': eff, 'battery_powered': m.is_batt}] %}
+                  {% endif %}
+                {% endfor %}
+                {% endif %}
+                {{ ns.items }}
+          # ---- Devices still listed in the helper but now reporting online —
+          # ---- their recovery event was missed. Same suppression rules.
           - variables:
               recovered_devices: >-
                 {% set ns = namespace(items=[]) %}
-                {% for st in states.binary_sensor
-                     | selectattr('entity_id', 'search', 'connection_state$')
-                     | rejectattr('entity_id', 'in', exclude_entities)
-                     | selectattr('state', 'eq', 'on')
-                     | list %}
-                  {% set dname = st.entity_id
-                       | replace('binary_sensor.', '')
-                       | replace('_connection_state', '') %}
-                  {% if dname in current_notified %}
-                    {% set fname = state_attr(st.entity_id, 'friendly_name') | default(dname | replace('_', ' ') | title, true) %}
-                    {% set ns.items = ns.items + [{'entity_id': st.entity_id, 'device_name': dname, 'friendly_name': fname}] %}
+                {% if not mass.suppress_all %}
+                {% for m in monitored | selectattr('state', 'eq', 'on') | list %}
+                  {% set is_member = mass.suppress_members and mass.infra > 0 and m.lc_ts < mass.infra %}
+                  {% if (m.device_name in current_notified) and (not is_member) %}
+                    {% set ns.items = ns.items + [{'entity_id': m.entity_id, 'device_name': m.device_name,
+                         'friendly_name': m.friendly_name}] %}
                   {% endif %}
                 {% endfor %}
+                {% endif %}
                 {{ ns.items }}
+          # ---- MASS OUTAGE: one-time remediation action.
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ mass.run_remediation }}"
+                sequence:
+                  - variables:
+                      offline_count: "{{ mass.offline_count }}"
+                      monitored_count: "{{ mass.monitored_count }}"
+                      offline_fraction: "{{ mass.offline_fraction }}"
+                      affected_devices: "{{ mass.affected }}"
+                      trigger_reason: "{{ mass.trigger_reason }}"
+                      bridge_entity: "{{ mass.bridge_entity }}"
+                      outage_started: "{{ mass.detected | timestamp_local if mass.detected else '' }}"
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ true }}"
+                        sequence: !input mass_outage_actions
+          # ---- MASS OUTAGE: aggregated alert / reminder.
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >-
+                      {{ mass.notify in ['outage', 'reminder'] and notification_devices | length > 0 }}
+                sequence:
+                  - variables:
+                      offline_count: "{{ mass.offline_count }}"
+                      monitored_count: "{{ mass.monitored_count }}"
+                      offline_fraction: "{{ mass.offline_fraction }}"
+                      affected_devices: "{{ mass.affected }}"
+                      trigger_reason: "{{ mass.trigger_reason }}"
+                      bridge_entity: "{{ mass.bridge_entity }}"
+                      is_reminder: "{{ mass.notify == 'reminder' }}"
+                      outage_started: "{{ mass.detected | timestamp_local if mass.detected else '' }}"
+                      outage_duration: "{{ (as_timestamp(now()) | int) - mass.detected if mass.detected else 0 }}"
+                      notification_time: "{{ now().strftime(timestamp_format) }}"
+                      mass_notification_data: >-
+                        {{ dict(offline_message_data,
+                           **{'subtitle': notification_time, 'subject': notification_time})
+                           if notification_timestamp_enabled else offline_message_data }}
+                  - repeat:
+                      for_each: "{{ notification_devices | list }}"
+                      sequence:
+                        - action: >-
+                            notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}
+                          data:
+                            title: !input mass_outage_title
+                            message: !input mass_outage_message
+                            data: "{{ mass_notification_data }}"
+          # ---- MASS OUTAGE: infrastructure recovered.
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >-
+                      {{ mass.notify == 'recovery' and notification_devices | length > 0 }}
+                sequence:
+                  - variables:
+                      monitored_count: "{{ mass.monitored_count }}"
+                      recovered_count: "{{ mass.monitored_count - mass.offline_count }}"
+                      still_offline_count: "{{ mass.offline_count }}"
+                      outage_started: "{{ mass.detected | timestamp_local if mass.detected else '' }}"
+                      outage_duration: "{{ (mass.infra - mass.detected) if (mass.infra and mass.detected) else 0 }}"
+                      notification_time: "{{ now().strftime(timestamp_format) }}"
+                      mass_notification_data: >-
+                        {{ dict(online_message_data,
+                           **{'subtitle': notification_time, 'subject': notification_time})
+                           if notification_timestamp_enabled else online_message_data }}
+                  - repeat:
+                      for_each: "{{ notification_devices | list }}"
+                      sequence:
+                        - action: >-
+                            notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}
+                          data:
+                            title: !input mass_recovery_title
+                            message: !input mass_recovery_message
+                            data: "{{ mass_notification_data }}"
+          # ---- MASS OUTAGE: not-recovered follow-up (mains or battery).
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >-
+                      {{ mass.notify == 'followup' and notification_devices | length > 0 }}
+                sequence:
+                  - variables:
+                      followup_kind: "{{ mass.still_kind }}"
+                      still_offline_devices: "{{ mass.still_devices }}"
+                      still_offline_count: "{{ mass.still_devices | length }}"
+                      outage_started: "{{ mass.detected | timestamp_local if mass.detected else '' }}"
+                      notification_time: "{{ now().strftime(timestamp_format) }}"
+                      mass_notification_data: >-
+                        {{ dict(offline_message_data,
+                           **{'subtitle': notification_time, 'subject': notification_time})
+                           if notification_timestamp_enabled else offline_message_data }}
+                  - repeat:
+                      for_each: "{{ notification_devices | list }}"
+                      sequence:
+                        - action: >-
+                            notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}
+                          data:
+                            title: !input mass_followup_title
+                            message: !input mass_followup_message
+                            data: "{{ mass_notification_data }}"
+          # ---- Per-device offline notifications + actions (skipped entirely
+          # ---- while a mass outage suppresses per-device handling).
           - repeat:
               for_each: "{{ due_devices }}"
               sequence:
@@ -755,20 +1278,68 @@ action:
                         - condition: template
                           value_template: "{{ self_heal_notify }}"
                       sequence: !input online_actions
-          # Single batched helper write for the whole run — pipe-delimited
-          # format. Adds newly-offline devices and drops self-healed ones;
-          # skipped entirely when neither list has anything.
+          # ---- Single batched helper write for the whole run. The optional
+          # ---- mass-outage marker is kept as the first pipe-delimited field,
+          # ---- followed by the tracked device names. When the result would
+          # ---- exceed the 255-character Input Text limit it is truncated and
+          # ---- (optionally) a persistent notification is raised.
+          - variables:
+              new_sentinel: "{{ mass.sentinel if (mass_outage_enabled | bool(false)) else mass_raw }}"
+              helper_devices: >-
+                {{ (current_notified
+                    | reject('in', recovered_devices | map(attribute='device_name') | list)
+                    | list)
+                   + (due_devices | map(attribute='device_name') | list) }}
+          - variables:
+              helper_parts: "{{ ([new_sentinel] if new_sentinel else []) + helper_devices }}"
+          - variables:
+              helper_candidate: "{{ helper_parts | join('|') }}"
+              helper_parts_fit: >-
+                {% set ns = namespace(acc=[], len=0, done=false) %}
+                {% for item in helper_parts %}
+                {% if not ns.done %}
+                {% set addl = (item | length) + (1 if ns.acc else 0) %}
+                {% if ns.len + addl <= 250 %}
+                {% set ns.acc = ns.acc + [item] %}
+                {% set ns.len = ns.len + addl %}
+                {% else %}
+                {% set ns.done = true %}
+                {% endif %}
+                {% endif %}
+                {% endfor %}
+                {{ ns.acc }}
+          - variables:
+              helper_overflow: "{{ (helper_candidate | length) > 250 }}"
+              helper_value: "{{ helper_candidate if (helper_candidate | length) <= 250 else (helper_parts_fit | join('|')) }}"
           - if:
               - condition: template
                 value_template: >-
-                  {{ (due_devices | length > 0) or (recovered_devices | length > 0) }}
+                  {{ (due_devices | length > 0) or (recovered_devices | length > 0)
+                     or (new_sentinel != mass_raw) }}
             then:
               - action: input_text.set_value
                 target:
                   entity_id: !input notified_helper
                 data:
-                  value: >-
-                    {{ ((current_notified
-                         | reject('in', recovered_devices | map(attribute='device_name') | list)
-                         | list)
-                        + (due_devices | map(attribute='device_name') | list)) | join('|') }}
+                  value: "{{ helper_value }}"
+          - if:
+              - condition: template
+                value_template: "{{ (warn_on_helper_full | bool(true)) and helper_overflow }}"
+            then:
+              - action: persistent_notification.create
+                data:
+                  notification_id: mqtt_csm_helper_full
+                  title: MQTT Connection State Monitor
+                  message: >-
+                    Tracking helper full: only part of the offline-device list fits in the
+                    255-character Input Text limit, so duplicate offline alerts are likely
+                    for the rest until the helper is cleared, monitoring is split across
+                    multiple helpers, or Mass Outage Detection is enabled.
+            else:
+              - if:
+                  - condition: template
+                    value_template: "{{ warn_on_helper_full | bool(true) }}"
+                then:
+                  - action: persistent_notification.dismiss
+                    data:
+                      notification_id: mqtt_csm_helper_full

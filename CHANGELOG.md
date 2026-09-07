@@ -2,6 +2,58 @@
 
 All notable changes to this project are documented here.
 
+## [v0.3.0] - 2026-09-07
+
+### Added
+- **Mass Outage Detection** — new *Mass Outage Detection* section (disabled by
+  default). When many monitored devices drop in the same check — a Zigbee
+  coordinator, MQTT bridge or hub failure rather than genuine per-device
+  outages — the blueprint sends **one** aggregated alert instead of a per-device
+  flood, suppresses all per-device offline/online handling (Companion App and
+  Custom Actions) until recovery, and optionally runs a one-time remediation
+  action (e.g. pressing the coordinator's restart button) (#11).
+  - Trigger on an absolute **Trigger Count**, a **Trigger Fraction (%)** of all
+    monitored devices (OR-combined), or any listed **Bridge / Coordinator
+    Entity** being `off`/`unavailable` (immediate, no debounce). Count/fraction
+    triggers are confirmed over two consecutive checks.
+  - **Reminder Interval** repeats the alert while the infrastructure is still
+    down; reminders stop once it recovers.
+  - **Mass Outage Actions** + **Action Delay** run once, only if the outage is
+    still ongoing after the delay.
+  - Two-phase recovery: an *infrastructure recovered* alert fires when all bridge
+    entities are back `on` or ≥ 90 % of mains-powered devices have returned
+    (battery devices are ignored for this decision); then separate *not
+    recovered* follow-ups list any mains devices still offline after twice the
+    Check Interval and any battery devices still offline after **Battery Recovery
+    Grace** (default 1 h).
+  - **Maximum Outage Duration** (default 24 h) force-closes the episode; any
+    devices still offline then fall back to normal per-device tracking.
+  - Episode state is held in a single fixed-size marker at the front of the
+    tracking helper, so a coordinator-wide outage no longer fills the 255-char
+    helper regardless of device count.
+  - New context variables for Mass Outage Actions and the aggregated
+    notification templates: `offline_count`, `monitored_count`,
+    `offline_fraction`, `affected_devices`, `outage_started`, `outage_duration`,
+    `trigger_reason`, `bridge_entity`, `is_reminder`, `recovered_count`,
+    `still_offline_count`, `still_offline_devices`, `followup_kind`.
+- **Warn When Tracking Helper Is Full** — new toggle in *Monitoring Options*
+  (`default: true`). When the tracking helper would exceed the 255-character
+  Input Text limit, it is now truncated (instead of the write failing silently)
+  and a persistent notification is raised; it clears itself once the helper fits
+  again (#12).
+- **Warn When Threshold Is Clamped** — new toggle in *Monitoring Options*
+  (`default: true`). Raises a persistent notification when **Offline Duration**
+  or **Battery Device Offline Duration** is shorter than the **Check Interval**
+  and is therefore silently treated as one interval; dismisses itself when the
+  values are no longer clamped (#13).
+
+### Changed
+- The connectivity scan now runs once per periodic check and feeds the
+  due-devices, self-heal and mass-outage logic from a single pass.
+- While a mass outage episode is active, the event-triggered "back online" branch
+  is a no-op, so a recovery event storm no longer produces a per-device push
+  flood.
+
 ## [v0.2.2] - 2026-09-05
 
 ### Added
