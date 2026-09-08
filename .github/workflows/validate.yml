@@ -1,0 +1,39 @@
+name: Validate blueprint
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: yamllint
+        run: |
+          pipx run yamllint \
+            -d "{extends: relaxed, rules: {line-length: disable, comments: disable, comments-indentation: disable, document-start: disable, trailing-spaces: disable, empty-lines: disable, brackets: disable, key-duplicates: enable, truthy: {allowed-values: ['true', 'false']}}}" \
+            mqtt-connection-state-monitor.yaml
+
+      - name: Home Assistant config check
+        run: |
+          set -euo pipefail
+          mkdir -p ha/blueprints/automation/mqtt
+          cp mqtt-connection-state-monitor.yaml ha/blueprints/automation/mqtt/
+          cp test/automations.yaml ha/automations.yaml
+          cat > ha/configuration.yaml <<'EOF'
+          homeassistant:
+            name: CI
+            latitude: 0
+            longitude: 0
+            elevation: 0
+            unit_system: metric
+            time_zone: UTC
+          automation: !include automations.yaml
+          EOF
+          # Pin a concrete version for reproducibility; bump as needed.
+          docker run --rm -v "$PWD/ha:/config" \
+            ghcr.io/home-assistant/home-assistant:stable \
+            python -m homeassistant --script check_config -c /config

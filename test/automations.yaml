@@ -1,0 +1,61 @@
+# Test fixture for CI (.github/workflows/validate.yml) and local validation:
+#
+#   docker run --rm -v "$PWD/ha:/config" \
+#     ghcr.io/home-assistant/home-assistant:stable \
+#     python -m homeassistant --script check_config -c /config
+#
+# Purpose: exercise the blueprint's input schema and every template path
+# (both Mass Outage Detection on and off). Values are dummies; the referenced
+# entities do not need to exist for `check_config`.
+
+- id: mqtt_csm_ci_full
+  alias: "[CI] MQTT Connection State Monitor - full inputs / mass detection on"
+  use_blueprint:
+    path: mqtt/mqtt-connection-state-monitor.yaml
+    input:
+      notified_helper: input_text.mqtt_csm_ci_notified
+      offline_notifications_enabled: true
+      online_notifications_enabled: true
+      notification_timestamp_enabled: true
+      notification_time_format: "24h"
+      offline_title: "Offline: {{ device_name }}"
+      offline_message: "{{ device_name }} has been offline since {{ notification_time }}"
+      online_title: "Back online: {{ device_name }}"
+      online_message: "{{ device_name }} recovered"
+      offline_interruption_level: time-sensitive
+      online_interruption_level: passive
+      ios_notification_group: mqtt_connection_state
+      offline_high_priority: true
+      offline_sticky: true
+      online_high_priority: false
+      online_sticky: false
+      android_notification_channel: MQTT Alerts
+      offline_actions: []
+      online_actions: []
+      check_interval_minutes: "5"
+      offline_duration: { hours: 0, minutes: 15 }
+      battery_offline_duration: { hours: 6, minutes: 0 }
+      self_heal_notify: true
+      warn_on_clamped_threshold: true
+      warn_on_helper_full: true
+      exclude_entities: []
+      mass_outage_detection: true
+      mass_outage_count: 10
+      mass_outage_fraction: 60
+      bridge_entities:
+        - binary_sensor.mqtt_csm_ci_bridge
+      mass_outage_reminder_hours: 2
+      mass_outage_action_delay: { hours: 0, minutes: 5 }
+      battery_recovery_grace: { hours: 1, minutes: 0 }
+      mass_outage_max_hours: 24
+      mass_outage_actions:
+        - action: button.press
+          target:
+            entity_id: button.mqtt_csm_ci_coordinator_restart
+
+- id: mqtt_csm_ci_minimal
+  alias: "[CI] MQTT Connection State Monitor - minimal / mass detection off"
+  use_blueprint:
+    path: mqtt/mqtt-connection-state-monitor.yaml
+    input:
+      notified_helper: input_text.mqtt_csm_ci_notified_min
