@@ -6,7 +6,7 @@ blueprint:
   description: |-
     # MQTT Connection State Monitor
 
-    ![Version](https://img.shields.io/badge/version-0.3.0-blue) &nbsp;&nbsp;&nbsp; [![GitHub](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/dabo53ck/mqtt-connection-state-monitor) &nbsp;&nbsp;&nbsp; [![Issues](https://img.shields.io/badge/Issues-red)](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) &nbsp;&nbsp;&nbsp; [![Community](https://img.shields.io/badge/Community-Thread-blue)](https://community.home-assistant.io/t/release-mqtt-connection-state-monitor-for-home-assistant/)
+    ![Version](https://img.shields.io/badge/version-0.3.1-blue) &nbsp;&nbsp;&nbsp; [![GitHub](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/dabo53ck/mqtt-connection-state-monitor) &nbsp;&nbsp;&nbsp; [![Issues](https://img.shields.io/badge/Issues-red)](https://github.com/dabo53ck/mqtt-connection-state-monitor/issues) &nbsp;&nbsp;&nbsp; [![Community](https://img.shields.io/badge/Community-Thread-blue)](https://community.home-assistant.io/t/release-mqtt-connection-state-monitor-for-home-assistant/)
 
     Monitor your MQTT-connected devices and receive timely notifications when they go offline. Unlike basic connectivity checks, this blueprint implements **delayed detection** to avoid false alarms from brief connection drops, while maintaining robust duplicate protection so you're not spammed with repeated alerts.
 
@@ -362,8 +362,15 @@ blueprint:
           description: >-
             Optional. Connectivity entities for your Zigbee bridge / MQTT broker
             / hub. If any of these is 'off' or 'unavailable', a mass outage is
-            declared immediately (no two-scan debounce). Also used as the primary
-            "infrastructure recovered" signal — when all of them are back 'on'.
+            declared immediately (no two-scan debounce). They are also the
+            primary "infrastructure recovered" signal, but recovery is only
+            declared once they are ALL back 'on' AND the devices are visibly
+            reconnecting (at least half of mains devices back, or the offline
+            count down to 80% of its peak) — the bridge entity alone is not
+            enough. If the outage re-expands or a bridge entity trips again
+            after a declared recovery, the episode reopens (up to twice) and
+            re-runs the remediation action. Point these at something that
+            reflects coordinator health, not just broker connectivity.
           default: []
           selector:
             entity:
@@ -838,7 +845,9 @@ action:
                 {% set p = mass_raw.split(':') %}
                 {% if p[0] == '__mass__' and (p | length) >= 6 %}
                 {{ {'phase': 'active', 'detected': p[1] | int(0), 'infra': p[2] | int(0),
-                    'action_fired': (p[3] == '1'), 'mains_fu': (p[4] == '1'), 'batt_fu': (p[5] == '1')} }}
+                    'action_fired': (p[3] == '1'), 'mains_fu': (p[4] == '1'), 'batt_fu': (p[5] == '1'),
+                    'peak': (p[6] | int(0) if (p | length) >= 7 else 0),
+                    'reopen': (p[7] | int(0) if (p | length) >= 8 else 0)} }}
                 {% elif p[0] == '__mass_pending__' and (p | length) >= 2 %}
                 {{ {'phase': 'pending', 'first_seen': p[1] | int(0)} }}
                 {% else %}
@@ -968,7 +977,7 @@ action:
                 {% elif sp == 'none' %}
                   {% if cond and bridge_tripped %}
                     {% set ns.action = 'promote' %}
-                    {% set ns.sentinel = '__mass__:' ~ nowts ~ ':0:0:0:0' %}
+                    {% set ns.sentinel = '__mass__:' ~ nowts ~ ':0:0:0:0:' ~ off_ct ~ ':0' %}
                     {% set ns.notify = 'outage' %}
                     {% set ns.detected = nowts %}
                     {% set ns.suppress_all = true %}
@@ -980,7 +989,7 @@ action:
                 {% elif sp == 'pending' %}
                   {% if cond and (bridge_tripped or (nowts - mass_state.first_seen) >= ci) %}
                     {% set ns.action = 'promote' %}
-                    {% set ns.sentinel = '__mass__:' ~ nowts ~ ':0:0:0:0' %}
+                    {% set ns.sentinel = '__mass__:' ~ nowts ~ ':0:0:0:0:' ~ off_ct ~ ':0' %}
                     {% set ns.notify = 'outage' %}
                     {% set ns.detected = nowts %}
                     {% set ns.suppress_all = true %}
@@ -996,53 +1005,81 @@ action:
                   {% set af = 1 if mass_state.action_fired else 0 %}
                   {% set mfu = 1 if mass_state.mains_fu else 0 %}
                   {% set bfu = 1 if mass_state.batt_fu else 0 %}
+                  {% set reopen_n = mass_state.get('reopen', 0) | int(0) %}
+                  {% set peak_prev = mass_state.get('peak', 0) | int(0) %}
+                  {% set peak_now = [peak_prev, off_ct, mass_outage_count | int(0)] | max %}
+                  {% set reopen_cap = 2 %}
+                  {% set max_secs = (mass_outage_max_hours | int(24)) * 3600 %}
                   {% set ns.detected = d %}
+                  {# infra counts as recovered only WITH corroborating device
+                     recovery, never on the bridge sensor alone. mains_ratio_ok
+                     (no bridge configured) keeps its original meaning. #}
+                  {% set mains_ratio = (mains_on / mains_ct) if mains_ct > 0 else 0 %}
+                  {% set mains_ratio_ok = mains_ratio >= 0.9 %}
+                  {% set recovering = mains_ratio >= 0.5 or off_ct <= (peak_now * 4 // 5) %}
+                  {% set infra_ok = (bridge_all_on and recovering) or mains_ratio_ok %}
                   {% if inf == 0 %}
                     {% set ns.suppress_all = true %}
-                    {% set mains_ratio_ok = mains_ct > 0 and (mains_on / mains_ct) >= 0.9 %}
-                    {% if bridge_all_on or mains_ratio_ok %}
-                      {% set ns.action = 'infra_recovered' %}
-                      {% set ns.infra = nowts %}
-                      {% set ns.sentinel = '__mass__:' ~ d ~ ':' ~ nowts ~ ':' ~ af ~ ':0:0' %}
-                      {% set ns.notify = 'recovery' %}
-                    {% elif af == 0 and (mass_outage_actions | default([]) | length) > 0
-                            and (nowts - d) >= (mass_outage_action_delay_seconds | int(0)) and cond %}
+                    {% if af == 0 and (mass_outage_actions | default([]) | length) > 0
+                            and (nowts - d) >= (mass_outage_action_delay_seconds | int(0))
+                            and cond and not infra_ok %}
                       {% set ns.action = 'run_remediation' %}
                       {% set ns.run_remediation = true %}
-                      {% set ns.sentinel = '__mass__:' ~ d ~ ':0:1:0:0' %}
+                      {% set ns.sentinel = '__mass__:' ~ d ~ ':0:1:0:0:' ~ peak_now ~ ':' ~ reopen_n %}
+                    {% elif infra_ok %}
+                      {% set ns.action = 'infra_recovered' %}
+                      {% set ns.infra = nowts %}
+                      {% set ns.sentinel = '__mass__:' ~ d ~ ':' ~ nowts ~ ':' ~ af ~ ':0:0:' ~ peak_now ~ ':' ~ reopen_n %}
+                      {% set ns.notify = 'recovery' %}
                     {% elif (mass_outage_reminder_hours | int(0)) > 0
                             and (nowts - d) >= (mass_outage_reminder_hours | int(0)) * 3600
                             and ((nowts - d) % ((mass_outage_reminder_hours | int(0)) * 3600)) < ci %}
                       {% set ns.action = 'reminder' %}
                       {% set ns.notify = 'reminder' %}
+                    {% elif peak_now > peak_prev %}
+                      {% set ns.sentinel = '__mass__:' ~ d ~ ':0:' ~ af ~ ':0:0:' ~ peak_now ~ ':' ~ reopen_n %}
                     {% endif %}
                   {% else %}
-                    {% set ns.infra = inf %}
-                    {% set ns.suppress_members = true %}
-                    {% set still = monitored | selectattr('state', 'eq', 'off')
-                         | selectattr('lc_ts', 'lt', inf) | list %}
-                    {% set still_mains = still | rejectattr('is_batt') | list %}
-                    {% set still_batt = still | selectattr('is_batt') | list %}
-                    {% if mfu == 0 and (nowts - inf) >= (2 * ci) %}
-                      {% set ns.action = 'mains_followup' %}
-                      {% set ns.sentinel = '__mass__:' ~ d ~ ':' ~ inf ~ ':' ~ af ~ ':1:' ~ bfu %}
-                      {% if still_mains | length > 0 %}
-                        {% set ns.notify = 'followup' %}
-                        {% set ns.still = still_mains | map(attribute='friendly_name') | list %}
-                        {% set ns.still_kind = 'mains' %}
+                    {% set outage_reexpanded = cond and off_ct >= (mass_outage_count | int(1))
+                         and off_ct >= (peak_now * 4 // 5) %}
+                    {% if (bridge_tripped or outage_reexpanded)
+                          and reopen_n < reopen_cap and (nowts - d) < max_secs %}
+                      {# recovery was premature — drop back to the infra-down
+                         phase, re-arm remediation and reminders, bounded to
+                         reopen_cap so it cannot ping-pong forever. #}
+                      {% set ns.action = 'reopen' %}
+                      {% set ns.infra = 0 %}
+                      {% set ns.suppress_all = true %}
+                      {% set ns.notify = 'reminder' %}
+                      {% set ns.sentinel = '__mass__:' ~ d ~ ':0:0:0:0:' ~ peak_now ~ ':' ~ (reopen_n + 1) %}
+                    {% else %}
+                      {% set ns.infra = inf %}
+                      {% set ns.suppress_members = true %}
+                      {% set still = monitored | selectattr('state', 'eq', 'off')
+                           | selectattr('lc_ts', 'lt', inf) | list %}
+                      {% set still_mains = still | rejectattr('is_batt') | list %}
+                      {% set still_batt = still | selectattr('is_batt') | list %}
+                      {% if mfu == 0 and (nowts - inf) >= (2 * ci) %}
+                        {% set ns.action = 'mains_followup' %}
+                        {% set ns.sentinel = '__mass__:' ~ d ~ ':' ~ inf ~ ':' ~ af ~ ':1:' ~ bfu ~ ':' ~ peak_now ~ ':' ~ reopen_n %}
+                        {% if still_mains | length > 0 %}
+                          {% set ns.notify = 'followup' %}
+                          {% set ns.still = still_mains | map(attribute='friendly_name') | list %}
+                          {% set ns.still_kind = 'mains' %}
+                        {% endif %}
+                      {% elif bfu == 0 and (nowts - inf) >= (battery_recovery_grace_seconds | int(3600)) %}
+                        {% set ns.action = 'battery_followup' %}
+                        {% set ns.sentinel = '__mass__:' ~ d ~ ':' ~ inf ~ ':' ~ af ~ ':' ~ mfu ~ ':1:' ~ peak_now ~ ':' ~ reopen_n %}
+                        {% if still_batt | length > 0 %}
+                          {% set ns.notify = 'followup' %}
+                          {% set ns.still = still_batt | map(attribute='friendly_name') | list %}
+                          {% set ns.still_kind = 'battery' %}
+                        {% endif %}
+                      {% elif (nowts - d) >= max_secs
+                              or (mfu == 1 and bfu == 1 and still | length == 0) %}
+                        {% set ns.action = 'close' %}
+                        {% set ns.sentinel = '' %}
                       {% endif %}
-                    {% elif bfu == 0 and (nowts - inf) >= (battery_recovery_grace_seconds | int(3600)) %}
-                      {% set ns.action = 'battery_followup' %}
-                      {% set ns.sentinel = '__mass__:' ~ d ~ ':' ~ inf ~ ':' ~ af ~ ':' ~ mfu ~ ':1' %}
-                      {% if still_batt | length > 0 %}
-                        {% set ns.notify = 'followup' %}
-                        {% set ns.still = still_batt | map(attribute='friendly_name') | list %}
-                        {% set ns.still_kind = 'battery' %}
-                      {% endif %}
-                    {% elif (nowts - d) >= (mass_outage_max_hours | int(24)) * 3600
-                            or (mfu == 1 and bfu == 1 and still | length == 0) %}
-                      {% set ns.action = 'close' %}
-                      {% set ns.sentinel = '' %}
                     {% endif %}
                   {% endif %}
                 {% endif %}

@@ -1,7 +1,7 @@
 # MQTT Connection State Monitor for Home Assistant
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.3.0-blue"/>
+  <img src="https://img.shields.io/badge/version-0.3.1-blue"/>
 </p>
 
 **Home Assistant automation to monitor MQTT Connection State binary sensors and notify when devices remain offline longer than the configured duration.**

@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented here.
 
+## [v0.3.1] - 2026-09-08
+
+### Changed
+- **Mass outage recovery is harder to fool.** The *infrastructure recovered*
+  step no longer fires on the bridge/coordinator entity alone — it now also
+  requires visible device recovery (≥ 50 % of mains devices back, or the
+  offline count down to 80 % of its peak). A coordinator that hangs while its
+  MQTT-connection sensor stays `on` no longer ends the episode prematurely.
+- **Remediation runs before recovery is declared.** When Mass Outage Actions are
+  configured, the action now fires at the first eligible check instead of being
+  pre-empted by a recovery check on the same run.
+- **Premature recovery is reversible.** If the outage re-expands (back to the
+  trigger count and ≥ 80 % of peak) or a bridge entity trips again after a
+  declared recovery, the episode reopens — up to twice — re-arming the
+  remediation action and reminders. Bounded by *Maximum Outage Duration*.
+- Episode marker gains two trailing fields (`peak`, `reopen`); older markers are
+  read with both defaulting to `0`, so in-flight episodes upgrade cleanly.
+
+### Added
+- CI (`.github/workflows/validate.yml`): yamllint + Home Assistant
+  `check_config` against a full-input test automation, on every push and PR.
+
 ## [v0.3.0] - 2026-09-07
 
 ### Added
