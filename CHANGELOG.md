@@ -4,12 +4,18 @@ All notable changes to this project are documented here.
 
 ## [v0.3.1] - 2026-09-08
 
+### Fixed
+- **Mass outage: `infra_recovered` no longer fires on the bridge entity alone**
+  (#14). It previously ended the episode on the first `active` check while most
+  devices were still offline — sending a bogus *recovered* alert and, because
+  remediation is gated on `infra == 0`, permanently disarming the configured
+  coordinator-restart action.
+
 ### Changed
 - **Mass outage recovery is harder to fool.** The *infrastructure recovered*
-  step no longer fires on the bridge/coordinator entity alone — it now also
-  requires visible device recovery (≥ 50 % of mains devices back, or the
-  offline count down to 80 % of its peak). A coordinator that hangs while its
-  MQTT-connection sensor stays `on` no longer ends the episode prematurely.
+  step now also requires visible device recovery (≥ 50 % of mains devices back,
+  or the offline count down to 80 % of its peak). A coordinator that hangs while
+  its MQTT-connection sensor stays `on` no longer ends the episode prematurely.
 - **Remediation runs before recovery is declared.** When Mass Outage Actions are
   configured, the action now fires at the first eligible check instead of being
   pre-empted by a recovery check on the same run.
