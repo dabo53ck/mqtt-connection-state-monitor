@@ -616,8 +616,12 @@ blueprint:
               domain: input_text
 
 mode: queued
-max: 10
-max_exceeded: warning
+# A genuine fleet-wide recovery (broker/coordinator returns, many devices
+# re-announce "online" at once) is an event burst. Absorb a realistic burst;
+# anything past this is reconciled by the periodic self-heal scan on the next
+# check, and Mass Outage Detection routes such bursts through that path anyway.
+max: 20
+max_exceeded: silent
 
 # time_pattern does not render templates in its own options, so the interval
 # cannot be a single templated trigger. Instead, one fixed trigger per allowed
@@ -639,8 +643,13 @@ trigger:
   - platform: time_pattern
     minutes: "/30"
     enabled: "{{ check_interval_minutes | string == '30' }}"
+  # Offline events match no action branch (offline detection is poll-based), so
+  # waking the automation for them only burns queue slots and traces. React to
+  # "online" events only.
   - platform: event
     event_type: mqtt_connection_state_changed
+    event_data:
+      state: online
 
 variables:
   offline_notifications_enabled: !input offline_notifications_enabled

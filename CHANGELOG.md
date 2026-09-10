@@ -10,6 +10,12 @@ All notable changes to this project are documented here.
   devices were still offline — sending a bogus *recovered* alert and, because
   remediation is gated on `infra == 0`, permanently disarming the configured
   coordinator-restart action.
+- **Fleet-wide recovery no longer drops per-device recovery notifications**
+  (#15). A simultaneous recovery of many devices exceeded the queued-run cap.
+  The event trigger now reacts to `online` events only (`offline` events matched
+  no branch and only burned queue slots and traces), the cap is raised 10 → 20,
+  and overflow is silent. The periodic self-heal scan remains the backstop, and
+  Mass Outage Detection routes coordinator/broker-wide bursts through it entirely.
 
 ### Changed
 - **Mass outage recovery is harder to fool.** The *infrastructure recovered*
