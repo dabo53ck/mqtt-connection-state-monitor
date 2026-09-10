@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [v0.3.1] - 2026-09-08
+## [v0.3.1] - 2026-09-10
 
 ### Fixed
 - **Mass outage: `infra_recovered` no longer fires on the bridge entity alone**
