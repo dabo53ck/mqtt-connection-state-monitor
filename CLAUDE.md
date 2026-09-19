@@ -9,12 +9,13 @@ changelog, tests and CI. Not a Python package.
 - `CHANGELOG.md` — one section per release; `README.md` only links to it
 - `test/automations.yaml` — CI fixture: drives the blueprint with every input set
 - `.github/workflows/validate.yml` — yamllint + HA `check_config` on push / PR
-- `test/README.md` — local validation + the topic-branch → HA-re-import loop
+- `test/README.md` — local validation + the `dev` → HA-re-import loop
 
 ## Conventions
 
-- Short-lived topic branches (`fix/…`, `feat/…`, `docs/…`) → PR → `main`; delete the
-  branch after merging. There is no long-lived `dev` branch. Conventional Commits.
+- Work happens on a `dev` branch that is created fresh from `main` for each batch of
+  changes → PR → `main` (squash-merge). `dev` only lives until the release: delete it
+  after the merge; the next batch starts a new `dev` from `main`. Conventional Commits.
 - `main` is what users import (the blueprint's `source_url` and the README badge point
   at it): a change to `mqtt-connection-state-monitor.yaml` is merged **together with its
   release** — version badge + CHANGELOG date in the PR, tag `vX.Y.Z` right after the
