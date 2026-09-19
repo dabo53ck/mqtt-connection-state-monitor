@@ -9,11 +9,16 @@ changelog, tests and CI. Not a Python package.
 - `CHANGELOG.md` — one section per release; `README.md` only links to it
 - `test/automations.yaml` — CI fixture: drives the blueprint with every input set
 - `.github/workflows/validate.yml` — yamllint + HA `check_config` on push / PR
-- `test/README.md` — local validation + the dev → HA-re-import loop
+- `test/README.md` — local validation + the topic-branch → HA-re-import loop
 
 ## Conventions
 
-- Branch `dev` → PR → `main`. Conventional Commits.
+- Short-lived topic branches (`fix/…`, `feat/…`, `docs/…`) → PR → `main`; delete the
+  branch after merging. There is no long-lived `dev` branch. Conventional Commits.
+- `main` is what users import (the blueprint's `source_url` and the README badge point
+  at it): a change to `mqtt-connection-state-monitor.yaml` is merged **together with its
+  release** — version badge + CHANGELOG date in the PR, tag `vX.Y.Z` right after the
+  merge. Docs- or CI-only changes need no release.
 - One `CHANGELOG.md` section per release; release = git tag `vX.Y.Z` + GitHub
   release. An unreleased section is still a draft — keep editing it until tagged.
 - The `## [vX.Y.Z] - DATE` line uses the release / commit date, not the day the
