@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # Keep the GitHub Actions used by .github/workflows/validate.yml up to date.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"
